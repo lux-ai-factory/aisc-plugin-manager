@@ -1,13 +1,13 @@
 [project]
 name = "vera-plugin-manager"
-version = "0.2.3"
+version = "0.2.4"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "httpx>=0.28.1",
-    "vera-plugin-interface>=0.2.3",
+    "vera-plugin-interface>=0.2.4",
 ]
 
 [tool.uv.sources]
-vera-plugin-interface = { git = "https://github.com/lux-ai-factory/vera-plugin-interface.git", tag = "v0.2.3" }
+vera-plugin-interface = { git = "https://github.com/lux-ai-factory/vera-plugin-interface.git", tag = "v0.2.4" }
