@@ -1,13 +1,13 @@
 [project]
-name = "vera-plugin-manager"
+name = "aisc-plugin-manager"
 version = "0.2.3"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "httpx>=0.28.1",
-    "vera-plugin-interface>=0.2.3",
+    "aisc-plugin-interface>=0.2.3",
 ]
 
 [tool.uv.sources]
-vera-plugin-interface = { git = "https://github.com/lux-ai-factory/vera-plugin-interface.git", tag = "v0.2.3" }
+aisc-plugin-interface = { git = "https://github.com/lux-ai-factory/aisc-plugin-interface.git", tag = "v0.2.3" }
