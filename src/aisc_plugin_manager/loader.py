@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Dict, Type
 
 from .devpi_client import DevpiClient
-from vera_plugin_interface.base_evaluation_plugin import BaseEvaluationPlugin
+from aisc_plugin_interface.base_evaluation_plugin import BaseEvaluationPlugin
 from .uv_client import uv_install
 
 logger = logging.getLogger(__name__)
