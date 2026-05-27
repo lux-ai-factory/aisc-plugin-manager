@@ -3,6 +3,34 @@ revision = 3
 requires-python = ">=3.12"
 
 [[package]]
+name = "aisc-plugin-interface"
+version = "0.2.4"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pydantic" },
+    { name = "rich" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/cb/00/e3da02def506a8eea7298a25adbb2d9ab31c79d80fb151e6770925e09891/aisc_plugin_interface-0.2.4.tar.gz", hash = "sha256:d62d3f93bfae411d0a50fd4eaf545dd00c0e8efae62af7120d595cacd7c1ac7a", size = 1835, upload-time = "2026-05-27T09:35:34.249Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/13/ef/32b5dccd08115fc10f77b7d9eeb34021ff36c2bf06969a9967e11779034e/aisc_plugin_interface-0.2.4-py3-none-any.whl", hash = "sha256:9c46d3eacd720ed6c34ef655d5dacb81fe3aa4d10771da02405d947ab4ee9767", size = 2948, upload-time = "2026-05-27T09:35:33.2Z" },
+]
+
+[[package]]
+name = "aisc-plugin-manager"
+version = "0.2.4"
+source = { virtual = "." }
+dependencies = [
+    { name = "aisc-plugin-interface" },
+    { name = "httpx" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "aisc-plugin-interface", specifier = ">=0.2.4" },
+    { name = "httpx", specifier = ">=0.28.1" },
+]
+
+[[package]]
 name = "annotated-types"
 version = "0.7.0"
 source = { registry = "https://pypi.org/simple" }
@@ -231,34 +259,4 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/55/e3/70399cb7dd41c10ac53367ae42139cf4b1ca5f36bb3dc6c9d33acdb43655/typing_inspection-0.4.2.tar.gz", hash = "sha256:ba561c48a67c5958007083d386c3295464928b01faa735ab8547c5692e87f464", size = 75949, upload-time = "2025-10-01T02:14:41.687Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/dc/9b/47798a6c91d8bdb567fe2698fe81e0c6b7cb7ef4d13da4114b41d239f65d/typing_inspection-0.4.2-py3-none-any.whl", hash = "sha256:4ed1cacbdc298c220f1bd249ed5287caa16f34d44ef4e9c3d0cbad5b521545e7", size = 14611, upload-time = "2025-10-01T02:14:40.154Z" },
-]
-
-[[package]]
-name = "vera-plugin-interface"
-version = "0.2.3"
-source = { editable = "../plugin-interface" }
-dependencies = [
-    { name = "pydantic" },
-    { name = "rich" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "pydantic", specifier = ">=2.12.5" },
-    { name = "rich", specifier = ">=14.3.3" },
-]
-
-[[package]]
-name = "vera-plugin-manager"
-version = "0.2.3"
-source = { virtual = "." }
-dependencies = [
-    { name = "httpx" },
-    { name = "vera-plugin-interface" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "httpx", specifier = ">=0.28.1" },
-    { name = "vera-plugin-interface", editable = "../plugin-interface" },
 ]

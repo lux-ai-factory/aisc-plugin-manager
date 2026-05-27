@@ -8,6 +8,3 @@ dependencies = [
     "httpx>=0.28.1",
     "aisc-plugin-interface>=0.2.4",
 ]
-
-[tool.uv.sources]
-aisc-plugin-interface = { git = "https://github.com/lux-ai-factory/aisc-plugin-interface.git", tag = "v0.2.4" }
