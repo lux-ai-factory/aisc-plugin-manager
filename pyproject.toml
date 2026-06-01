@@ -1,13 +1,10 @@
 [project]
 name = "aisc-plugin-manager"
-version = "0.2.3"
+version = "0.2.5"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "httpx>=0.28.1",
-    "aisc-plugin-interface>=0.2.3",
+    "aisc-plugin-interface>=0.2.5",
 ]
-
-[tool.uv.sources]
-aisc-plugin-interface = { git = "https://github.com/lux-ai-factory/aisc-plugin-interface.git", tag = "v0.2.3" }
