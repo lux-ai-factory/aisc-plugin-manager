@@ -14,23 +14,22 @@ logger = logging.getLogger(__name__)
 DEFAULT_PLUGIN_PATH = "plugins"
 
 
-def find_module_directory(pkg_root: Path) -> Path | None:
+def get_expected_module_directory(pkg_root: Path, package_name: str) -> Path | None:
     """
-    Strictly checks for:
-    1. pkg_root/module_name/__init__.py
-    2. pkg_root/src/module_name/__init__.py
+    Enforces strict convention: looks for a module folder named
+    exactly after the normalized package name inside src/ or the root.
     """
-    # Case 2: src/module structure
-    src_dir = pkg_root / "src"
-    if src_dir.exists() and src_dir.is_dir():
-        for subdirectory in src_dir.iterdir():
-            if subdirectory.is_dir() and (subdirectory / "__init__.py").exists():
-                return subdirectory
+    module_name = package_name.replace("-", "_")
 
-    # Case 1: Direct module structure
-    for subdirectory in pkg_root.iterdir():
-        if subdirectory.is_dir() and (subdirectory / "__init__.py").exists():
-            return subdirectory
+    # Check case: src/module_name/
+    src_dir = pkg_root / "src" / module_name
+    if src_dir.exists() and src_dir.is_dir():
+        return src_dir
+
+    # Check case: module_name/ (at root)
+    root_dir = pkg_root / module_name
+    if root_dir.exists() and root_dir.is_dir():
+        return root_dir
 
     return None
 
@@ -40,7 +39,6 @@ class Loader:
                  registry_password: str):
         self.plugin_dirs = [Path(local_plugin_path), Path(DEFAULT_PLUGIN_PATH)]
         self.devpi_client = DevpiClient(registry_url, registry_index, registry_user, registry_password)
-
         self.discovered_packages: Dict[str, Dict[str, dict]] = {}
         self._loaded_plugins: Dict[str, BaseEvaluationPlugin] = {}
 
@@ -51,32 +49,40 @@ class Loader:
             for pkg_root in plugin_dir.iterdir():
                 if not pkg_root.is_dir():
                     continue
-                module_path = find_module_directory(pkg_root)
-                if module_path:
-                    pyproject_path = pkg_root / "pyproject.toml"
-                    if pyproject_path.exists():
-                        try:
-                            with open(pyproject_path, "rb") as f:
-                                toml_data = tomllib.load(f)
-                                
-                                package_name = toml_data.get("project", {}).get("name")
-                                version = toml_data.get("project", {}).get("version")
 
-                                if not package_name or not version:
-                                    logger.warning(f"Missing name or version in pyproject.toml for {pkg_root.name}")
-                                    continue
+                pyproject_path = pkg_root / "pyproject.toml"
+                if not pyproject_path.exists():
+                    continue
 
-                                if package_name not in self.discovered_packages:
-                                    self.discovered_packages[package_name] = {}
+                try:
+                    with open(pyproject_path, "rb") as f:
+                        toml_data = tomllib.load(f)
 
-                                self.discovered_packages[package_name][version] = {
-                                    "source": "local",
-                                    "pkg_root": pkg_root,
-                                    "module_name": module_path.name,
-                                    "import_path": str(module_path.parent.resolve())
-                                }
-                        except Exception as e:
-                            logger.warning(f"Failed to read pyproject.toml for {pkg_root.name}: {e}")
+                    package_name = toml_data.get("project", {}).get("name")
+                    version = toml_data.get("project", {}).get("version")
+
+                    if not package_name or not version:
+                        logger.warning(f"Missing name or version in pyproject.toml for {pkg_root.name}")
+                        continue
+
+                    # Enforce strict naming matching the registry
+                    module_path = get_expected_module_directory(pkg_root, package_name)
+                    if not module_path:
+                        logger.error(
+                            f"Convention Violation: Package '{package_name}' does not contain a matching module folder inside '{pkg_root.name}'")
+                        continue
+
+                    if package_name not in self.discovered_packages:
+                        self.discovered_packages[package_name] = {}
+
+                    self.discovered_packages[package_name][version] = {
+                        "source": "local",
+                        "pkg_root": pkg_root,
+                        "module_name": module_path.name,
+                        "import_path": str(module_path.parent.resolve())
+                    }
+                except Exception as e:
+                    logger.warning(f"Failed to read pyproject.toml for {pkg_root.name}: {e}")
 
     def _discover_registry_packages(self):
         if not self.devpi_client:
@@ -101,7 +107,6 @@ class Loader:
             logger.error(f"Failed to list registry plugins: {e}")
 
     def list_packages(self, refresh: bool = False) -> Dict[str, Dict[str, dict]]:
-        """Returns the nested dictionary of available packages and their versions."""
         if refresh or not self.discovered_packages:
             self.discovered_packages.clear()
             self._discover_local_packages()
@@ -112,12 +117,11 @@ class Loader:
         found_plugins = {}
         for _, obj in inspect.getmembers(module, inspect.isclass):
             if issubclass(obj, BaseEvaluationPlugin) and obj is not BaseEvaluationPlugin:
-                plugin_key = obj.__name__
-                found_plugins[plugin_key] = obj
+                found_plugins[obj.__name__] = obj
         return found_plugins
 
     def load_package(self, package_name: str, version: str) -> Dict[str, BaseEvaluationPlugin]:
-        """Installs/Imports a package, caches, and returns all found plugin instances."""
+        """Installs/Imports the package module, verifying convention criteria."""
         if not self.discovered_packages:
             self.list_packages()
 
@@ -125,19 +129,19 @@ class Loader:
             raise KeyError(f"Package '{package_name}' not found.")
 
         available_versions = self.discovered_packages[package_name]
-
         if version not in available_versions:
             raise KeyError(f"Version '{version}' of package '{package_name}' not found.")
 
         package_meta = available_versions[version]
         module_name = package_meta["module_name"]
 
-        # Clear existing module from sys.modules to ensure fresh load
+        # Flush sys.modules to enforce a clean re-import
         if module_name in sys.modules:
             modules_to_remove = [m for m in sys.modules if m == module_name or m.startswith(f"{module_name}.")]
             for m in modules_to_remove:
                 del sys.modules[m]
 
+        # Configure environment paths depending on the source target
         if package_meta["source"] == "local":
             import_path = package_meta["import_path"]
             if import_path not in sys.path:
@@ -149,13 +153,17 @@ class Loader:
         sys.path_importer_cache.clear()
         importlib.invalidate_caches()
 
-        module = importlib.import_module(module_name)
+        # Import the unified module target
+        try:
+            module = importlib.import_module(module_name)
+        except ImportError as e:
+            raise ImportError(f"Failed to import convention module '{module_name}' for package '{package_name}': {e}")
+
         plugin_classes = self._extract_plugin_classes(module)
-
         if not plugin_classes:
-            raise ValueError(f"No plugins found in package '{package_name}' (v{version})")
+            raise ValueError(f"No valid implementations inheriting from BaseEvaluationPlugin found in '{module_name}'")
 
-        # Instantiate and cache all plugins found in the package
+        # Instantiate implementation instances and update the engine cache
         instances = {}
         for name, cls in plugin_classes.items():
             instance = cls()
@@ -166,17 +174,12 @@ class Loader:
         return instances
 
     def load_plugin(self, package_name: str, plugin_name: str, version: str) -> BaseEvaluationPlugin:
-        """Helper to extract a specific plugin directly from its package, favoring the cache."""
-        if not self.discovered_packages:
-            self.list_packages()
-
         cache_key = f"{package_name}::{version}::{plugin_name}"
-
         if cache_key in self._loaded_plugins:
             return self._loaded_plugins[cache_key]
 
         plugins = self.load_package(package_name, version)
         if plugin_name not in plugins:
-            raise KeyError(f"Plugin '{plugin_name}' not found in package '{package_name}'")
+            raise KeyError(f"Plugin '{plugin_name}' not found in module package '{package_name}'")
 
         return plugins[plugin_name]
