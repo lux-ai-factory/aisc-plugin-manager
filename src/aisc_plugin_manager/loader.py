@@ -75,14 +75,44 @@ class Loader:
                     if package_name not in self.discovered_packages:
                         self.discovered_packages[package_name] = {}
 
-                    self.discovered_packages[package_name][version] = {
+                    meta = {
                         "source": "local",
                         "pkg_root": pkg_root,
                         "module_name": module_path.name,
                         "import_path": str(module_path.parent.resolve())
                     }
+
+                    if self._is_package_valid(meta):
+                        self.discovered_packages[package_name][version] = meta
                 except Exception as e:
                     logger.warning(f"Failed to read pyproject.toml for {pkg_root.name}: {e}")
+
+    def _is_package_valid(self, package_meta: dict) -> bool:
+        """Checks if a local package contains at least one BaseEvaluationPlugin implementation."""
+        if package_meta["source"] != "local":
+            return True
+
+        module_name = package_meta["module_name"]
+        import_path = package_meta["import_path"]
+
+        old_path = sys.path[:]
+        try:
+            if import_path not in sys.path:
+                sys.path.insert(0, import_path)
+
+            sys.path_importer_cache.clear()
+            importlib.invalidate_caches()
+
+            try:
+                # Import the module to inspect it
+                module = importlib.import_module(module_name)
+                plugin_classes = self._extract_plugin_classes(module)
+                return len(plugin_classes) > 0
+            except Exception as e:
+                logger.warning(f"Failed to validate local package '{module_name}': {e}")
+                return False
+        finally:
+            sys.path = old_path
 
     def _discover_registry_packages(self):
         if not self.devpi_client:
@@ -116,8 +146,11 @@ class Loader:
     def _extract_plugin_classes(self, module) -> Dict[str, Type[BaseEvaluationPlugin]]:
         found_plugins = {}
         for _, obj in inspect.getmembers(module, inspect.isclass):
-            if issubclass(obj, BaseEvaluationPlugin) and obj is not BaseEvaluationPlugin:
-                found_plugins[obj.__name__] = obj
+            try:
+                if issubclass(obj, BaseEvaluationPlugin) and obj is not BaseEvaluationPlugin:
+                    found_plugins[obj.__name__] = obj
+            except TypeError:
+                continue
         return found_plugins
 
     def load_package(self, package_name: str, version: str) -> Dict[str, BaseEvaluationPlugin]:
