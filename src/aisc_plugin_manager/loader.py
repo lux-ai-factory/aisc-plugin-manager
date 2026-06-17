@@ -4,7 +4,7 @@ import sys
 import logging
 import tomllib
 from pathlib import Path
-from typing import Dict, Type
+from typing import Dict, Type, Iterator
 
 from .devpi_client import DevpiClient
 from aisc_plugin_interface.base_evaluation_plugin import BaseEvaluationPlugin
@@ -65,6 +65,11 @@ class Loader:
                         logger.warning(f"Missing name or version in pyproject.toml for {pkg_root.name}")
                         continue
 
+                    dependencies = toml_data.get("project", {}).get("dependencies", [])
+                    if not any("aisc-plugin-interface" in dep for dep in dependencies):
+                        logger.warning(f"Skipping local package '{package_name}': does not depend on aisc-plugin-interface")
+                        continue
+
                     # Enforce strict naming matching the registry
                     module_path = get_expected_module_directory(pkg_root, package_name)
                     if not module_path:
@@ -106,8 +111,7 @@ class Loader:
             try:
                 # Import the module to inspect it
                 module = importlib.import_module(module_name)
-                plugin_classes = self._extract_plugin_classes(module)
-                return len(plugin_classes) > 0
+                return next(self._find_plugins_classes(module), None) is not None
             except Exception as e:
                 logger.warning(f"Failed to validate local package '{module_name}': {e}")
                 return False
@@ -143,15 +147,13 @@ class Loader:
             self._discover_registry_packages()
         return self.discovered_packages
 
-    def _extract_plugin_classes(self, module) -> Dict[str, Type[BaseEvaluationPlugin]]:
-        found_plugins = {}
+    def _find_plugins_classes(self, module) -> Iterator[Type[BaseEvaluationPlugin]]:
         for _, obj in inspect.getmembers(module, inspect.isclass):
-            try:
-                if issubclass(obj, BaseEvaluationPlugin) and obj is not BaseEvaluationPlugin:
-                    found_plugins[obj.__name__] = obj
-            except TypeError:
-                continue
-        return found_plugins
+            if issubclass(obj, BaseEvaluationPlugin) and not getattr(obj.evaluate, "__isabstractmethod__", False):
+                yield obj
+
+    def _extract_plugin_classes(self, module) -> Dict[str, Type[BaseEvaluationPlugin]]:
+        return {obj.__name__: obj for obj in self._find_plugins_classes(module)}
 
     def load_package(self, package_name: str, version: str) -> Dict[str, BaseEvaluationPlugin]:
         """Installs/Imports the package module, verifying convention criteria."""
