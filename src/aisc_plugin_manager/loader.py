@@ -7,11 +7,13 @@ from pathlib import Path
 from typing import Dict, Type, Iterator
 
 from .devpi_client import DevpiClient
-from aisc_plugin_interface.base_evaluation_plugin import BaseEvaluationPlugin
 from .uv_client import uv_install
+
+from aisc_plugin_interface import BaseEvaluationPlugin
 
 logger = logging.getLogger(__name__)
 DEFAULT_PLUGIN_PATH = "plugins"
+AISC_INTERFACE_DEP = "aisc-plugin-interface"
 
 
 def get_expected_module_directory(pkg_root: Path, package_name: str) -> Path | None:
@@ -66,8 +68,8 @@ class Loader:
                         continue
 
                     dependencies = toml_data.get("project", {}).get("dependencies", [])
-                    if not any("aisc-plugin-interface" in dep for dep in dependencies):
-                        logger.warning(f"Skipping local package '{package_name}': does not depend on aisc-plugin-interface")
+                    if not any(AISC_INTERFACE_DEP in dep for dep in dependencies):
+                        logger.warning(f"Skipping local package '{package_name}': does not depend on {AISC_INTERFACE_DEP}")
                         continue
 
                     # Enforce strict naming matching the registry
@@ -77,9 +79,6 @@ class Loader:
                             f"Convention Violation: Package '{package_name}' does not contain a matching module folder inside '{pkg_root.name}'")
                         continue
 
-                    if package_name not in self.discovered_packages:
-                        self.discovered_packages[package_name] = {}
-
                     meta = {
                         "source": "local",
                         "pkg_root": pkg_root,
@@ -88,6 +87,9 @@ class Loader:
                     }
 
                     if self._is_package_valid(meta):
+                        if package_name not in self.discovered_packages:
+                            self.discovered_packages[package_name] = {}
+
                         self.discovered_packages[package_name][version] = meta
                 except Exception as e:
                     logger.warning(f"Failed to read pyproject.toml for {pkg_root.name}: {e}")
