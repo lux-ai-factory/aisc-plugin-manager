@@ -173,6 +173,12 @@ class Loader:
 
         return instances
 
+    def refresh_package(self, package_name: str, version: str) -> Dict[str, BaseEvaluationPlugin]:
+        cache_keys = [k for k in self._loaded_plugins if k.startswith(f"{package_name}::{version}::")]
+        for k in cache_keys:
+            del self._loaded_plugins[k]
+        return self.load_package(package_name, version)
+
     def load_plugin(self, package_name: str, plugin_name: str, version: str) -> BaseEvaluationPlugin:
         cache_key = f"{package_name}::{version}::{plugin_name}"
         if cache_key in self._loaded_plugins:
