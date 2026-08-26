@@ -7,4 +7,5 @@ requires-python = ">=3.12"
 dependencies = [
     "httpx>=0.28.1",
     "aisc-plugin-interface>=0.2.5",
+    "packaging>=26.2",
 ]
