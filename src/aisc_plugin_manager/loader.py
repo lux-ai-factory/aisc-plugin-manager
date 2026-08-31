@@ -4,14 +4,16 @@ import sys
 import logging
 import tomllib
 from pathlib import Path
-from typing import Dict, Type
+from typing import Dict, Type, Iterator
 
 from .devpi_client import DevpiClient
-from aisc_plugin_interface.base_evaluation_plugin import BaseEvaluationPlugin
 from .uv_client import uv_install
+
+from aisc_plugin_interface import BaseEvaluationPlugin
 
 logger = logging.getLogger(__name__)
 DEFAULT_PLUGIN_PATH = "plugins"
+AISC_INTERFACE_DEP = "aisc-plugin-interface"
 
 
 def get_expected_module_directory(pkg_root: Path, package_name: str) -> Path | None:
@@ -65,6 +67,11 @@ class Loader:
                         logger.warning(f"Missing name or version in pyproject.toml for {pkg_root.name}")
                         continue
 
+                    dependencies = toml_data.get("project", {}).get("dependencies", [])
+                    if not any(AISC_INTERFACE_DEP in dep for dep in dependencies):
+                        logger.warning(f"Skipping local package '{package_name}': does not depend on {AISC_INTERFACE_DEP}")
+                        continue
+
                     # Enforce strict naming matching the registry
                     module_path = get_expected_module_directory(pkg_root, package_name)
                     if not module_path:
@@ -72,17 +79,46 @@ class Loader:
                             f"Convention Violation: Package '{package_name}' does not contain a matching module folder inside '{pkg_root.name}'")
                         continue
 
-                    if package_name not in self.discovered_packages:
-                        self.discovered_packages[package_name] = {}
-
-                    self.discovered_packages[package_name][version] = {
+                    meta = {
                         "source": "local",
                         "pkg_root": pkg_root,
                         "module_name": module_path.name,
                         "import_path": str(module_path.parent.resolve())
                     }
+
+                    if self._is_package_valid(meta):
+                        if package_name not in self.discovered_packages:
+                            self.discovered_packages[package_name] = {}
+
+                        self.discovered_packages[package_name][version] = meta
                 except Exception as e:
                     logger.warning(f"Failed to read pyproject.toml for {pkg_root.name}: {e}")
+
+    def _is_package_valid(self, package_meta: dict) -> bool:
+        """Checks if a local package contains at least one BaseEvaluationPlugin implementation."""
+        if package_meta["source"] != "local":
+            return True
+
+        module_name = package_meta["module_name"]
+        import_path = package_meta["import_path"]
+
+        old_path = sys.path[:]
+        try:
+            if import_path not in sys.path:
+                sys.path.insert(0, import_path)
+
+            sys.path_importer_cache.clear()
+            importlib.invalidate_caches()
+
+            try:
+                # Import the module to inspect it
+                module = importlib.import_module(module_name)
+                return next(self._find_plugins_classes(module), None) is not None
+            except Exception as e:
+                logger.warning(f"Failed to validate local package '{module_name}': {e}")
+                return False
+        finally:
+            sys.path = old_path
 
     def _discover_registry_packages(self):
         if not self.devpi_client:
@@ -113,12 +149,13 @@ class Loader:
             self._discover_registry_packages()
         return self.discovered_packages
 
-    def _extract_plugin_classes(self, module) -> Dict[str, Type[BaseEvaluationPlugin]]:
-        found_plugins = {}
+    def _find_plugins_classes(self, module) -> Iterator[Type[BaseEvaluationPlugin]]:
         for _, obj in inspect.getmembers(module, inspect.isclass):
-            if issubclass(obj, BaseEvaluationPlugin) and obj is not BaseEvaluationPlugin:
-                found_plugins[obj.__name__] = obj
-        return found_plugins
+            if issubclass(obj, BaseEvaluationPlugin) and not getattr(obj.evaluate, "__isabstractmethod__", False):
+                yield obj
+
+    def _extract_plugin_classes(self, module) -> Dict[str, Type[BaseEvaluationPlugin]]:
+        return {obj.__name__: obj for obj in self._find_plugins_classes(module)}
 
     def load_package(self, package_name: str, version: str) -> Dict[str, BaseEvaluationPlugin]:
         """Installs/Imports the package module, verifying convention criteria."""
@@ -172,6 +209,12 @@ class Loader:
             self._loaded_plugins[cache_key] = instance
 
         return instances
+
+    def refresh_package(self, package_name: str, version: str) -> Dict[str, BaseEvaluationPlugin]:
+        cache_keys = [k for k in self._loaded_plugins if k.startswith(f"{package_name}::{version}::")]
+        for k in cache_keys:
+            del self._loaded_plugins[k]
+        return self.load_package(package_name, version)
 
     def load_plugin(self, package_name: str, plugin_name: str, version: str) -> BaseEvaluationPlugin:
         cache_key = f"{package_name}::{version}::{plugin_name}"
