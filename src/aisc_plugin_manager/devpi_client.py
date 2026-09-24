@@ -19,12 +19,15 @@ class DevpiPackageResponse(BaseModel):
 
 
 class DevpiClient:
-    def __init__(self, base_url: str, index: str, user: str, password: str):
+    def __init__(self, base_url: str, index: str, user: str | None = None, password: str | None = None):
         self.base_url = base_url.rstrip("/")
         self.index = index if index.startswith("/") else f"/{index}"
 
         self.full_index_url = f"{self.base_url}{self.index}"
         self.simple_index_url = f"{self.full_index_url}/+simple/"
+
+        if (user is not None) != (password is not None):
+            raise ValueError("Both user and password must be provided for an authenticated registry")
 
         self.user = user
         self.password = password
@@ -38,13 +41,17 @@ class DevpiClient:
         self._initialized = False
 
     def _initialize_devpi(self):
-        if not self._initialized:
+        if self._initialized:
+            return
+
+        if self.user is not None and self.password is not None:
             response = self.client.post(
                 "/+login",
                 json={"user": self.user, "password": self.password}
             )
             response.raise_for_status()
-            self._initialized = True
+
+        self._initialized = True
 
     def list_packages(self) -> dict[str, str]:
         """Returns a dictionary of {package_name: latest_version}"""

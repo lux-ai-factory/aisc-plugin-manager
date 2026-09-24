@@ -37,8 +37,8 @@ def get_expected_module_directory(pkg_root: Path, package_name: str) -> Path | N
 
 
 class Loader:
-    def __init__(self, local_plugin_path: str, registry_url: str, registry_index: str, registry_user: str,
-                 registry_password: str):
+    def __init__(self, local_plugin_path: str, registry_url: str, registry_index: str, registry_user: str | None = None,
+                 registry_password: str | None = None):
         self.plugin_dirs = [Path(local_plugin_path), Path(DEFAULT_PLUGIN_PATH)]
         self.devpi_client = DevpiClient(registry_url, registry_index, registry_user, registry_password)
         self.discovered_packages: Dict[str, Dict[str, dict]] = {}
