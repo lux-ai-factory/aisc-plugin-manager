@@ -5,7 +5,7 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "aisc-plugin-interface>=0.3.0",
     "httpx>=0.28.1",
-    "aisc-plugin-interface>=0.2.6",
     "packaging>=26.3",
 ]
