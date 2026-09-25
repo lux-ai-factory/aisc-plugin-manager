@@ -44,7 +44,10 @@ class DevpiClient:
         if self._initialized:
             return
 
-        if self.user is not None and self.password is not None:
+        # Only authenticate when real (non-empty) credentials are provided. Empty strings mean
+        # "public index, no login" — listing a public devpi index needs no auth, and POSTing
+        # /+login with empty creds returns 401 and breaks registry discovery.
+        if self.user and self.password:
             response = self.client.post(
                 "/+login",
                 json={"user": self.user, "password": self.password}
