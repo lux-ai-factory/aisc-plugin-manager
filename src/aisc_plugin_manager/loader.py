@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Dict, Type, Iterator
 
 from .devpi_client import DevpiClient
+from .digest import folder_digest, git_state, stat_signature
 from .uv_client import uv_install
 
 from aisc_plugin_interface import BaseEvaluationPlugin
@@ -14,6 +15,13 @@ from aisc_plugin_interface import BaseEvaluationPlugin
 logger = logging.getLogger(__name__)
 DEFAULT_PLUGIN_PATH = "plugins"
 AISC_INTERFACE_DEP = "aisc-plugin-interface"
+LOCAL_LABEL = "local"
+
+
+def local_version(version: str) -> str:
+    """The version a local package is listed under: PEP 440 local label "+local" (".local" when
+    the version already has a local label), so it never shadows a registry version."""
+    return f"{version}.{LOCAL_LABEL}" if "+" in version else f"{version}+{LOCAL_LABEL}"
 
 
 def get_expected_module_directory(pkg_root: Path, package_name: str) -> Path | None:
@@ -39,15 +47,42 @@ def get_expected_module_directory(pkg_root: Path, package_name: str) -> Path | N
 class Loader:
     def __init__(self, local_plugin_path: str, registry_url: str, registry_index: str, registry_user: str | None = None,
                  registry_password: str | None = None):
-        self.plugin_dirs = [Path(local_plugin_path), Path(DEFAULT_PLUGIN_PATH)]
+        # The configured folder first, then the conventional one relative to the working
+        # directory (deployments whose PLUGIN_PATH is a host path still find the mount there).
+        # The same folder reached both ways is scanned once.
+        self.plugin_dirs = []
+        for candidate in (Path(local_plugin_path), Path(DEFAULT_PLUGIN_PATH)):
+            if not any(self._same_dir(candidate, known) for known in self.plugin_dirs):
+                self.plugin_dirs.append(candidate)
         self.devpi_client = DevpiClient(registry_url, registry_index, registry_user, registry_password)
         self.discovered_packages: Dict[str, Dict[str, dict]] = {}
         self._loaded_plugins: Dict[str, BaseEvaluationPlugin] = {}
+        self._digest_cache: Dict[str, tuple] = {}
+
+    @staticmethod
+    def _same_dir(a: Path, b: Path) -> bool:
+        try:
+            return a.resolve() == b.resolve()
+        except OSError:
+            return False
+
+    def _digest(self, pkg_root: Path) -> str:
+        """Content digest, recomputed only when a file's path, size or mtime changed."""
+        key = str(pkg_root.resolve())
+        signature = stat_signature(pkg_root)
+        cached = self._digest_cache.get(key)
+        if cached and cached[0] == signature:
+            return cached[1]
+        digest = folder_digest(pkg_root)
+        self._digest_cache[key] = (signature, digest)
+        return digest
 
     def _discover_local_packages(self):
         for plugin_dir in self.plugin_dirs:
             if not plugin_dir.exists() or not plugin_dir.is_dir():
+                logger.info(f"Local plugin folder {plugin_dir} does not exist; skipped")
                 continue
+            logger.info(f"Scanning local plugin folder {plugin_dir.resolve()}")
             for pkg_root in plugin_dir.iterdir():
                 if not pkg_root.is_dir():
                     continue
@@ -79,18 +114,23 @@ class Loader:
                             f"Convention Violation: Package '{package_name}' does not contain a matching module folder inside '{pkg_root.name}'")
                         continue
 
+                    catalogue_slug = toml_data.get("tool", {}).get("aisc", {}).get("catalogue_slug")
                     meta = {
                         "source": "local",
                         "pkg_root": pkg_root,
                         "module_name": module_path.name,
-                        "import_path": str(module_path.parent.resolve())
+                        "import_path": str(module_path.parent.resolve()),
+                        "declared_version": version,
+                        "catalogue_slug": catalogue_slug or None,
                     }
 
                     if self._is_package_valid(meta):
+                        meta["digest"] = self._digest(pkg_root)
+                        meta.update({f"git_{k}": v for k, v in git_state(pkg_root).items()})
                         if package_name not in self.discovered_packages:
                             self.discovered_packages[package_name] = {}
 
-                        self.discovered_packages[package_name][version] = meta
+                        self.discovered_packages[package_name][local_version(version)] = meta
                 except Exception as e:
                     logger.warning(f"Failed to read pyproject.toml for {pkg_root.name}: {e}")
 
