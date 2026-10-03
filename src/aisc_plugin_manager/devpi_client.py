@@ -44,9 +44,9 @@ class DevpiClient:
         if self._initialized:
             return
 
-        # Only authenticate when real (non-empty) credentials are provided. Empty strings mean
-        # "public index, no login" — listing a public devpi index needs no auth, and POSTing
-        # /+login with empty creds returns 401 and breaks registry discovery.
+        # Log in only with real (non-empty) credentials. Empty strings mean a public index:
+        # listing it needs no login, and POST /+login with empty credentials answers 401, which
+        # would break registry discovery.
         if self.user and self.password:
             response = self.client.post(
                 "/+login",
@@ -57,7 +57,7 @@ class DevpiClient:
         self._initialized = True
 
     def list_packages(self) -> dict[str, str]:
-        """Returns a dictionary of {package_name: latest_version}"""
+        """Return {package name: latest version} for the index; a package whose versions cannot be read is skipped."""
         self._initialize_devpi()
         result = {}
 
@@ -89,5 +89,5 @@ class DevpiClient:
         return result
 
     def close(self):
-        """Helper to cleanly shut down the HTTP connection pool."""
+        """Close the HTTP connection pool."""
         self.client.close()

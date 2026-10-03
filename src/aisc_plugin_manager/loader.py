@@ -26,17 +26,15 @@ def local_version(version: str) -> str:
 
 def get_expected_module_directory(pkg_root: Path, package_name: str) -> Path | None:
     """
-    Enforces strict convention: looks for a module folder named
-    exactly after the normalized package name inside src/ or the root.
+    The package's module folder: ``src/<module>/`` or ``<module>/`` at the project root, where
+    ``<module>`` is the package name with dashes turned into underscores. None when neither exists.
     """
     module_name = package_name.replace("-", "_")
 
-    # Check case: src/module_name/
     src_dir = pkg_root / "src" / module_name
     if src_dir.exists() and src_dir.is_dir():
         return src_dir
 
-    # Check case: module_name/ (at root)
     root_dir = pkg_root / module_name
     if root_dir.exists() and root_dir.is_dir():
         return root_dir
@@ -107,7 +105,7 @@ class Loader:
                         logger.warning(f"Skipping local package '{package_name}': does not depend on {AISC_INTERFACE_DEP}")
                         continue
 
-                    # Enforce strict naming matching the registry
+                    # Same naming rule as for a package installed from the index
                     module_path = get_expected_module_directory(pkg_root, package_name)
                     if not module_path:
                         logger.error(
@@ -151,7 +149,6 @@ class Loader:
             importlib.invalidate_caches()
 
             try:
-                # Import the module to inspect it
                 module = importlib.import_module(module_name)
                 return next(self._find_plugins_classes(module), None) is not None
             except Exception as e:
@@ -198,7 +195,8 @@ class Loader:
         return {obj.__name__: obj for obj in self._find_plugins_classes(module)}
 
     def load_package(self, package_name: str, version: str) -> Dict[str, BaseEvaluationPlugin]:
-        """Installs/Imports the package module, verifying convention criteria."""
+        """Import a package (installing it first when it comes from the index) and return an
+        instance of each plugin class in it, keyed by class name."""
         if not self.discovered_packages:
             self.list_packages()
 
@@ -212,13 +210,14 @@ class Loader:
         package_meta = available_versions[version]
         module_name = package_meta["module_name"]
 
-        # Flush sys.modules to enforce a clean re-import
+        # Drop the module and its submodules from sys.modules so the import reads the code afresh
         if module_name in sys.modules:
             modules_to_remove = [m for m in sys.modules if m == module_name or m.startswith(f"{module_name}.")]
             for m in modules_to_remove:
                 del sys.modules[m]
 
-        # Configure environment paths depending on the source target
+        # A local package is imported from its folder; an index package is installed first, without
+        # its dependencies.
         if package_meta["source"] == "local":
             import_path = package_meta["import_path"]
             if import_path not in sys.path:
@@ -230,7 +229,6 @@ class Loader:
         sys.path_importer_cache.clear()
         importlib.invalidate_caches()
 
-        # Import the unified module target
         try:
             module = importlib.import_module(module_name)
         except ImportError as e:
@@ -240,7 +238,6 @@ class Loader:
         if not plugin_classes:
             raise ValueError(f"No valid implementations inheriting from BaseEvaluationPlugin found in '{module_name}'")
 
-        # Instantiate implementation instances and update the engine cache
         instances = {}
         for name, cls in plugin_classes.items():
             instance = cls()

@@ -1,4 +1,4 @@
-"""L6: the folder digest and git state recorded for a local plugin."""
+"""The folder digest and git state recorded for a local plugin."""
 import subprocess
 
 import pytest

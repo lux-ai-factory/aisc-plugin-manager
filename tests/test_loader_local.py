@@ -1,4 +1,4 @@
-"""Local plugins: discovery paths (P1), +local versions (P3), digest and git state (P4)."""
+"""Local plugins: the folders scanned, +local versions, digest and git state."""
 import logging
 
 import pytest
@@ -12,7 +12,7 @@ def loader(path, **kw):
     return Loader(str(path), "http://devpi.invalid", "root/public", **kw)
 
 
-# ---------- existing behaviour, locked in ----------
+# discovery of a valid package
 
 def test_a_valid_local_plugin_is_discovered(plugin_root, no_registry):
     make_plugin(plugin_root, "demo", "aisc-plugin-demo", "0.1.0")
@@ -39,7 +39,7 @@ def test_a_local_plugin_loads_its_classes(plugin_root, no_registry):
     assert set(ld.load_package("aisc-plugin-demo", version)) == {"DemoPlugin"}
 
 
-# ---------- L1: scanned folders ----------
+# scanned folders
 
 def test_l1_found_through_the_configured_path(plugin_root, no_registry):
     make_plugin(plugin_root, "demo", "aisc-plugin-demo", "0.1.0")
@@ -70,7 +70,7 @@ def test_l1_scanned_and_missing_folders_are_logged(tmp_path, monkeypatch, caplog
     assert "nowhere" in text and "does not exist" in text
 
 
-# ---------- L5: +local versions ----------
+# +local versions
 
 def test_l5_local_is_listed_as_plus_local_next_to_the_registry_version(plugin_root, monkeypatch):
     make_plugin(plugin_root, "demo", "aisc-plugin-demo", "0.1.1")
