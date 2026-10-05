@@ -22,12 +22,15 @@ knows two sources of plugin packages:
   `aisc-plugin-interface`, keeps its code in a folder named after the package (dashes as
   underscores) under `src/` or at the root, and that module imports and holds at least one
   non-abstract `BaseEvaluationPlugin` subclass. A local package is listed as `<version>+local`, so it
-  never shadows the same version on the index. Its entry also records a SHA-256 digest of its source
-  files, the git commit and whether the checkout is dirty (`digest.py`), and the
-  `[tool.aisc] catalogue_slug` from its `pyproject.toml`, so a result can be traced to the exact code.
+  never shadows the same version on the index; `load_package` also finds it by its declared version.
+  Its entry also records a SHA-256 digest of its source files, the git commit and whether the
+  checkout is dirty (`digest.py`), and the `[tool.aisc] catalogue_slug` from its `pyproject.toml`, so a
+  result can be traced to the exact code. Those are cached until a file or the checkout changes, and
+  are None when they can't be read: a plugin is never dropped for them.
 - **A devpi package index** (the stack's `devpi` service, which the catalogue publishes plugins to).
-  `DevpiClient` lists the index's packages and their latest versions; it logs in only when a user and
-  password are both non-empty.
+  `DevpiClient.list_versions` lists every version of each package (the loader installs whichever a
+  project has), `list_packages` the latest of each (what the catalogue shows); it logs in only when a
+  user and password are both non-empty.
 
 Main calls:
 

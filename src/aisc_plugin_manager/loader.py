@@ -18,6 +18,15 @@ AISC_INTERFACE_DEP = "aisc-plugin-interface"
 LOCAL_LABEL = "local"
 
 
+def _git_marks(pkg_root: Path) -> tuple:
+    """The mtimes of a checkout's HEAD and index: they move with a commit, a checkout or staging."""
+    marks = []
+    for name in ("HEAD", "index"):
+        path = Path(pkg_root) / ".git" / name
+        marks.append(path.stat().st_mtime_ns if path.is_file() else None)
+    return tuple(marks)
+
+
 def local_version(version: str) -> str:
     """The version a local package is listed under: PEP 440 local label "+local" (".local" when
     the version already has a local label), so it never shadows a registry version."""
@@ -64,16 +73,28 @@ class Loader:
         except OSError:
             return False
 
-    def _digest(self, pkg_root: Path) -> str:
-        """Content digest, recomputed only when a file's path, size or mtime changed."""
+    def _provenance(self, pkg_root: Path) -> dict:
+        """{"digest", "git_commit", "git_dirty"} of a local folder, each None when it can't be read: a
+        plugin is never dropped for its provenance. Recomputed only when a source file's path, size
+        or mtime, or the checkout's HEAD or index, changed."""
         key = str(pkg_root.resolve())
-        signature = stat_signature(pkg_root)
+        try:
+            signature = (stat_signature(pkg_root), _git_marks(pkg_root))
+        except OSError as exc:
+            logger.warning(f"Local package at {pkg_root}: its files could not be listed ({exc}); no digest")
+            return {"digest": None, "git_commit": None, "git_dirty": None}
         cached = self._digest_cache.get(key)
         if cached and cached[0] == signature:
-            return cached[1]
-        digest = folder_digest(pkg_root)
-        self._digest_cache[key] = (signature, digest)
-        return digest
+            return dict(cached[1])
+        try:
+            digest = folder_digest(pkg_root)
+        except OSError as exc:
+            logger.warning(f"Local package at {pkg_root}: a file could not be read ({exc}); no digest")
+            digest = None
+        facts = {"digest": digest, **{f"git_{k}": v for k, v in git_state(pkg_root).items()}}
+        if digest is not None:
+            self._digest_cache[key] = (signature, facts)
+        return dict(facts)
 
     def _discover_local_packages(self):
         for plugin_dir in self.plugin_dirs:
@@ -123,8 +144,7 @@ class Loader:
                     }
 
                     if self._is_package_valid(meta):
-                        meta["digest"] = self._digest(pkg_root)
-                        meta.update({f"git_{k}": v for k, v in git_state(pkg_root).items()})
+                        meta.update(self._provenance(pkg_root))
                         if package_name not in self.discovered_packages:
                             self.discovered_packages[package_name] = {}
 
@@ -204,6 +224,9 @@ class Loader:
             raise KeyError(f"Package '{package_name}' not found.")
 
         available_versions = self.discovered_packages[package_name]
+        if version not in available_versions and local_version(version) in available_versions:
+            # a local plugin stored under its declared version, from before "+local" listing
+            version = local_version(version)
         if version not in available_versions:
             raise KeyError(f"Version '{version}' of package '{package_name}' not found.")
 

@@ -2,7 +2,6 @@
 data-monitor 0.4.1 made the installed 0.4.0 "not found", and every configuration page of it failed)."""
 import httpx
 
-from aisc_plugin_manager import devpi_client
 from aisc_plugin_manager.devpi_client import DevpiClient
 from aisc_plugin_manager.loader import Loader
 

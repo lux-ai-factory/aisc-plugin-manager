@@ -78,14 +78,21 @@ def git_state(root: Path) -> dict:
     """{"commit", "dirty"}; both None outside a checkout. The commit is read from the files, so
     it works without a git binary; "dirty" needs git and is None when it isn't installed."""
     root = Path(root)
-    git_dir = _git_dir(root)
-    if git_dir is None or not (git_dir / "HEAD").is_file():
+    try:
+        git_dir = _git_dir(root)
+        if git_dir is None or not (git_dir / "HEAD").is_file():
+            return {"commit": None, "dirty": None}
+        commit = _read_commit(git_dir)
+    except (OSError, UnicodeDecodeError):                 # an unreadable .git: no commit to name
         return {"commit": None, "dirty": None}
-    commit = _read_commit(git_dir)
     dirty = None
     if shutil.which("git"):
-        result = subprocess.run(["git", "-c", "safe.directory=*", "-C", str(root), "status", "--porcelain"],
-                                capture_output=True, text=True, timeout=30)
-        if result.returncode == 0:
+        try:
+            # core.fsmonitor off: a hook configured in the folder's own .git/config never runs
+            result = subprocess.run(["git", "-c", "safe.directory=*", "-c", "core.fsmonitor=false", "-C", str(root),
+                                     "status", "--porcelain"], capture_output=True, text=True, timeout=30)
+        except (subprocess.TimeoutExpired, OSError):
+            result = None
+        if result is not None and result.returncode == 0:
             dirty = bool(result.stdout.strip())
     return {"commit": commit, "dirty": dirty}

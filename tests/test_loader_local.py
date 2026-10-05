@@ -105,3 +105,57 @@ def test_l5_a_plus_local_version_loads(plugin_root, monkeypatch):
     ld = loader(plugin_root)
     ld.list_packages(refresh=True)
     assert "DemoPlugin" in ld.load_package("aisc-plugin-demo", "0.1.1+local")
+
+
+# ── code review 2026-10-05 ──────────────────────────────────────────────────
+
+def test_a_digest_that_fails_leaves_the_plugin_listed(plugin_root, no_registry, monkeypatch):
+    """The digest and git state ran inside the try that skips a package, so an unreadable file or a
+    slow git dropped a valid local plugin, logged as a pyproject.toml failure."""
+    from aisc_plugin_manager import loader as loader_module
+
+    make_plugin(plugin_root, "demo", "aisc-plugin-demo", "0.1.0")
+    monkeypatch.setattr(loader_module, "folder_digest", lambda root: (_ for _ in ()).throw(OSError("unreadable")))
+    versions = loader(plugin_root).list_packages(refresh=True)["aisc-plugin-demo"]
+    assert versions["0.1.0+local"]["digest"] is None
+
+
+def test_a_git_status_that_times_out_says_nothing_of_dirtiness(tmp_path, monkeypatch):
+    import subprocess
+
+    from aisc_plugin_manager import digest
+
+    (tmp_path / ".git").mkdir()
+    (tmp_path / ".git" / "HEAD").write_text("0123456789abcdef0123456789abcdef01234567\n")
+
+    def slow(*a, **k):
+        raise subprocess.TimeoutExpired(a[0], 30)
+
+    monkeypatch.setattr(digest.subprocess, "run", slow)
+    monkeypatch.setattr(digest.shutil, "which", lambda name: "/usr/bin/git")
+    assert digest.git_state(tmp_path) == {"commit": "0123456789abcdef0123456789abcdef01234567", "dirty": None}
+
+
+def test_git_status_is_not_run_again_while_nothing_changed(plugin_root, no_registry, monkeypatch):
+    """Every listing ran git status and re-walked every local plugin: only the hash was cached."""
+    from aisc_plugin_manager import loader as loader_module
+
+    pkg = make_plugin(plugin_root, "demo", "aisc-plugin-demo", "0.1.0")
+    (pkg / ".git").mkdir()
+    (pkg / ".git" / "HEAD").write_text("0123456789abcdef0123456789abcdef01234567\n")
+    calls = []
+    real = loader_module.git_state
+    monkeypatch.setattr(loader_module, "git_state", lambda root: calls.append(root) or real(root))
+    ld = loader(plugin_root)
+    ld.list_packages(refresh=True)
+    ld.list_packages(refresh=True)
+    assert len(calls) == 1
+
+
+def test_a_local_plugin_stored_under_its_declared_version_still_loads(plugin_root, no_registry):
+    """Local packages became '<version>+local'; a plugin the engine stored as '0.1.0' before that was
+    'not found' on every page."""
+    make_plugin(plugin_root, "demo", "aisc-plugin-demo", "0.1.0", cls="DemoPlugin")
+    ld = loader(plugin_root)
+    ld.list_packages(refresh=True)
+    assert set(ld.load_package("aisc-plugin-demo", "0.1.0")) == {"DemoPlugin"}
