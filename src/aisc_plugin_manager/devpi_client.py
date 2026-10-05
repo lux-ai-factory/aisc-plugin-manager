@@ -56,8 +56,10 @@ class DevpiClient:
 
         self._initialized = True
 
-    def list_packages(self) -> dict[str, str]:
-        """Return {package name: latest version} for the index; a package whose versions cannot be read is skipped."""
+    def list_versions(self) -> dict[str, list[str]]:
+        """Return {package name: every version in the index}; a package whose versions cannot be read is
+        skipped. The loader needs them all: a project keeps the version it installed after a newer one is
+        uploaded (2026-10-05)."""
         self._initialize_devpi()
         result = {}
 
@@ -74,11 +76,8 @@ class DevpiClient:
                     pkg_response.raise_for_status()
 
                     pkg_data = DevpiPackageResponse.model_validate(pkg_response.json())
-                    versions = pkg_data.result
-
-                    if versions:
-                        latest_version = max(versions.keys(), key=parse_version)
-                        result[pkg] = str(latest_version)
+                    if pkg_data.result:
+                        result[pkg] = sorted(pkg_data.result, key=parse_version)
 
                 except Exception as e:
                     logger.warning(f"Failed to fetch versions for {pkg}: {e}")
@@ -87,6 +86,10 @@ class DevpiClient:
             logger.error(f"Failed to fetch package list from devpi: {e}")
 
         return result
+
+    def list_packages(self) -> dict[str, str]:
+        """Return {package name: latest version} for the index (the catalogue shows the latest only)."""
+        return {pkg: versions[-1] for pkg, versions in self.list_versions().items()}
 
     def close(self):
         """Close the HTTP connection pool."""

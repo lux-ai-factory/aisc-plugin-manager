@@ -161,7 +161,7 @@ class Loader:
         if not self.devpi_client:
             return
         try:
-            registry_packages = self.devpi_client.list_packages()
+            registry_packages = self.devpi_client.list_versions()
             for package_name, versions in registry_packages.items():
                 if package_name not in self.discovered_packages:
                     self.discovered_packages[package_name] = {}

@@ -74,7 +74,7 @@ def test_l1_scanned_and_missing_folders_are_logged(tmp_path, monkeypatch, caplog
 
 def test_l5_local_is_listed_as_plus_local_next_to_the_registry_version(plugin_root, monkeypatch):
     make_plugin(plugin_root, "demo", "aisc-plugin-demo", "0.1.1")
-    monkeypatch.setattr(devpi_client.DevpiClient, "list_packages", lambda self: {"aisc-plugin-demo": ["0.1.1"]})
+    monkeypatch.setattr(devpi_client.DevpiClient, "list_versions", lambda self: {"aisc-plugin-demo": ["0.1.1"]})
     versions = loader(plugin_root).list_packages(refresh=True)["aisc-plugin-demo"]
     assert versions["0.1.1+local"]["source"] == "local"
     assert versions["0.1.1"]["source"] == "registry"
