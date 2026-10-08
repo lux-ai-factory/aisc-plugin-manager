@@ -9,7 +9,7 @@ from typing import Dict, Type, Iterator
 from .devpi_client import DevpiClient
 from .uv_client import uv_install
 
-from aisc_plugin_interface import BaseEvaluationPlugin
+from aisc_plugin_interface import BaseEvaluationPlugin, BaseInputAdapter
 
 logger = logging.getLogger(__name__)
 DEFAULT_PLUGIN_PATH = "plugins"
@@ -42,6 +42,7 @@ class Loader:
         self.plugin_dirs = [Path(local_plugin_path), Path(DEFAULT_PLUGIN_PATH)]
         self.devpi_client = DevpiClient(registry_url, registry_index, registry_user, registry_password)
         self.discovered_packages: Dict[str, Dict[str, dict]] = {}
+        self.discovered_adapters: Dict[str, Dict[str, dict]] = {}
         self._loaded_plugins: Dict[str, BaseEvaluationPlugin] = {}
 
     def _discover_local_packages(self):
@@ -86,19 +87,32 @@ class Loader:
                         "import_path": str(module_path.parent.resolve())
                     }
 
-                    if self._is_package_valid(meta):
+                    classified = self._classify_module(meta)
+                    if classified is None:
+                        continue
+
+                    plugin_classes, adapter_classes = classified
+                    meta["plugin_classes"] = plugin_classes
+                    meta["adapter_classes"] = adapter_classes
+                    meta["kinds"] = self._kinds_for(plugin_classes, adapter_classes)
+
+                    if plugin_classes:
                         if package_name not in self.discovered_packages:
                             self.discovered_packages[package_name] = {}
-
                         self.discovered_packages[package_name][version] = meta
+
+                    if adapter_classes:
+                        if package_name not in self.discovered_adapters:
+                            self.discovered_adapters[package_name] = {}
+                        self.discovered_adapters[package_name][version] = meta
                 except Exception as e:
                     logger.warning(f"Failed to read pyproject.toml for {pkg_root.name}: {e}")
 
-    def _is_package_valid(self, package_meta: dict) -> bool:
-        """Checks if a local package contains at least one BaseEvaluationPlugin implementation."""
-        if package_meta["source"] != "local":
-            return True
+    def _classify_module(self, package_meta: dict) -> tuple[list[str], list[str]] | None:
+        """Imports a local package module and returns (plugin_classes, adapter_classes).
 
+        Returns ``None`` when the module cannot be imported or validated.
+        """
         module_name = package_meta["module_name"]
         import_path = package_meta["import_path"]
 
@@ -111,12 +125,14 @@ class Loader:
             importlib.invalidate_caches()
 
             try:
-                # Import the module to inspect it
                 module = importlib.import_module(module_name)
-                return next(self._find_plugins_classes(module), None) is not None
             except Exception as e:
-                logger.warning(f"Failed to validate local package '{module_name}': {e}")
-                return False
+                logger.warning(f"Failed to import local package '{module_name}': {e}")
+                return None
+
+            plugin_classes = [cls.__name__ for cls in self._find_plugin_classes(module)]
+            adapter_classes = [cls.__name__ for cls in self._find_adapter_classes(module)]
+            return plugin_classes, adapter_classes
         finally:
             sys.path = old_path
 
@@ -128,34 +144,87 @@ class Loader:
             for package_name, versions in registry_packages.items():
                 if package_name not in self.discovered_packages:
                     self.discovered_packages[package_name] = {}
+                if package_name not in self.discovered_adapters:
+                    self.discovered_adapters[package_name] = {}
 
                 if isinstance(versions, str):
                     versions = [versions]
 
                 for version in versions:
+                    # Classes only knowable after install -> advertise both kinds.
+                    registry_meta = {
+                        "source": "registry",
+                        "package": package_name,
+                        "module_name": package_name.replace("-", "_"),
+                        "plugin_classes": [],
+                        "adapter_classes": [],
+                        "kinds": ["plugin", "adapter"],
+                    }
                     if version not in self.discovered_packages[package_name]:
-                        self.discovered_packages[package_name][version] = {
-                            "source": "registry",
-                            "package": package_name,
-                            "module_name": package_name.replace("-", "_"),
-                        }
+                        self.discovered_packages[package_name][version] = registry_meta
+                    if version not in self.discovered_adapters[package_name]:
+                        self.discovered_adapters[package_name][version] = registry_meta
         except Exception as e:
             logger.error(f"Failed to list registry plugins: {e}")
 
-    def list_packages(self, refresh: bool = False) -> Dict[str, Dict[str, dict]]:
-        if refresh or not self.discovered_packages:
-            self.discovered_packages.clear()
-            self._discover_local_packages()
-            self._discover_registry_packages()
-        return self.discovered_packages
+    def _refresh_discovery(self):
+        self.discovered_packages.clear()
+        self.discovered_adapters.clear()
+        self._discover_local_packages()
+        self._discover_registry_packages()
 
-    def _find_plugins_classes(self, module) -> Iterator[Type[BaseEvaluationPlugin]]:
+    @staticmethod
+    def _filter_by_kind(packages: Dict[str, Dict[str, dict]], kind: str | None):
+        if kind is None:
+            return packages
+        return {
+            package_name: {
+                version: meta
+                for version, meta in versions.items()
+                if kind in meta.get("kinds", [])
+            }
+            for package_name, versions in packages.items()
+            if any(kind in meta.get("kinds", []) for meta in versions.values())
+        }
+
+    def list_packages(self, refresh: bool = False, kind: str | None = None) -> Dict[str, Dict[str, dict]]:
+        if refresh or not self.discovered_packages:
+            self._refresh_discovery()
+        return self._filter_by_kind(self.discovered_packages, kind)
+
+    def list_adapters(self, refresh: bool = False, kind: str | None = None) -> Dict[str, Dict[str, dict]]:
+        """Returns packages that provide (or may provide) BaseInputAdapter implementations.
+
+        For locally discovered packages only versions that actually export adapter
+        classes are present. Registry versions are included unconditionally because
+        their contents are only knowable after installation.
+        """
+        if refresh or not self.discovered_adapters:
+            self._refresh_discovery()
+        return self._filter_by_kind(self.discovered_adapters, kind)
+
+    def _find_plugin_classes(self, module) -> Iterator[Type[BaseEvaluationPlugin]]:
         for _, obj in inspect.getmembers(module, inspect.isclass):
             if issubclass(obj, BaseEvaluationPlugin) and not getattr(obj.evaluate, "__isabstractmethod__", False):
                 yield obj
 
+    def _find_adapter_classes(self, module) -> Iterator[Type[BaseInputAdapter]]:
+        for _, obj in inspect.getmembers(module, inspect.isclass):
+            if issubclass(obj, BaseInputAdapter) and not inspect.isabstract(obj):
+                yield obj
+
+    @staticmethod
+    def _kinds_for(plugin_classes: list[str], adapter_classes: list[str]) -> list[str]:
+        """Classifies a package version as provider of plugins and/or adapters."""
+        kinds = []
+        if plugin_classes:
+            kinds.append("plugin")
+        if adapter_classes:
+            kinds.append("adapter")
+        return kinds
+
     def _extract_plugin_classes(self, module) -> Dict[str, Type[BaseEvaluationPlugin]]:
-        return {obj.__name__: obj for obj in self._find_plugins_classes(module)}
+        return {obj.__name__: obj for obj in self._find_plugin_classes(module)}
 
     def load_package(self, package_name: str, version: str) -> Dict[str, BaseEvaluationPlugin]:
         """Installs/Imports the package module, verifying convention criteria."""
@@ -226,3 +295,42 @@ class Loader:
             raise KeyError(f"Plugin '{plugin_name}' not found in module package '{package_name}'")
 
         return plugins[plugin_name]
+
+    def load_adapter(self, package_name: str, version: str, adapter_class: str) -> Type[BaseInputAdapter]:
+        """Imports/installs a package and returns the requested BaseInputAdapter class."""
+        if not self.discovered_adapters:
+            self.list_adapters()
+
+        if package_name not in self.discovered_adapters:
+            raise KeyError(f"Package '{package_name}' not found.")
+
+        available_versions = self.discovered_adapters[package_name]
+        if version not in available_versions:
+            raise KeyError(f"Version '{version}' of package '{package_name}' not found.")
+
+        package_meta = available_versions[version]
+        module_name = package_meta["module_name"]
+
+        if module_name in sys.modules:
+            modules_to_remove = [m for m in sys.modules if m == module_name or m.startswith(f"{module_name}.")]
+            for m in modules_to_remove:
+                del sys.modules[m]
+
+        if package_meta["source"] == "local":
+            import_path = package_meta["import_path"]
+            if import_path not in sys.path:
+                sys.path.insert(0, import_path)
+        elif package_meta["source"] == "registry":
+            target = f'{package_name}=={version}'
+            uv_install(target, extra_index_url=self.devpi_client.simple_index_url, no_deps=True)
+
+        sys.path_importer_cache.clear()
+        importlib.invalidate_caches()
+
+        module = importlib.import_module(module_name)
+        adapter_cls = getattr(module, adapter_class, None)
+        if adapter_cls is None or not (inspect.isclass(adapter_cls) and issubclass(adapter_cls, BaseInputAdapter)):
+            raise ValueError(
+                f"'{adapter_class}' is not a subclass of BaseInputAdapter in package '{module_name}'"
+            )
+        return adapter_cls
