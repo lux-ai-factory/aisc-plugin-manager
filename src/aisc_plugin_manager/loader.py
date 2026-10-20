@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Dict, Type, Iterator
 
 from .devpi_client import DevpiClient
+from .digest import _git_dir, folder_digest, git_state, stat_signature
 from .uv_client import uv_install
 
 from aisc_plugin_interface import BaseEvaluationPlugin
@@ -14,21 +15,44 @@ from aisc_plugin_interface import BaseEvaluationPlugin
 logger = logging.getLogger(__name__)
 DEFAULT_PLUGIN_PATH = "plugins"
 AISC_INTERFACE_DEP = "aisc-plugin-interface"
+LOCAL_LABEL = "local"
+
+
+def _git_marks(pkg_root: Path) -> tuple:
+    """The mtimes of a checkout's HEAD, index and current branch ref: they move with a commit, a
+    checkout or staging. The git folder is found as digest finds it, so a worktree or submodule
+    (".git" is a file pointing elsewhere) is followed too."""
+    git_dir = _git_dir(Path(pkg_root))
+    if git_dir is None:
+        return (None, None, None)
+    paths = [git_dir / "HEAD", git_dir / "index"]
+    head = paths[0].read_text().strip() if paths[0].is_file() else ""
+    if head.startswith("ref:"):
+        ref = head.split(":", 1)[1].strip()
+        common = git_dir
+        if (git_dir / "commondir").is_file():      # worktrees keep refs in the common dir
+            common = (git_dir / (git_dir / "commondir").read_text().strip()).resolve()
+        paths.append(next((base / ref for base in (git_dir, common) if (base / ref).is_file()), common / "packed-refs"))
+    return tuple(path.stat().st_mtime_ns if path.is_file() else None for path in paths)
+
+
+def local_version(version: str) -> str:
+    """The version a local package is listed under: PEP 440 local label "+local" (".local" when
+    the version already has a local label), so it never shadows a registry version."""
+    return f"{version}.{LOCAL_LABEL}" if "+" in version else f"{version}+{LOCAL_LABEL}"
 
 
 def get_expected_module_directory(pkg_root: Path, package_name: str) -> Path | None:
     """
-    Enforces strict convention: looks for a module folder named
-    exactly after the normalized package name inside src/ or the root.
+    The package's module folder: ``src/<module>/`` or ``<module>/`` at the project root, where
+    ``<module>`` is the package name with dashes turned into underscores. None when neither exists.
     """
     module_name = package_name.replace("-", "_")
 
-    # Check case: src/module_name/
     src_dir = pkg_root / "src" / module_name
     if src_dir.exists() and src_dir.is_dir():
         return src_dir
 
-    # Check case: module_name/ (at root)
     root_dir = pkg_root / module_name
     if root_dir.exists() and root_dir.is_dir():
         return root_dir
@@ -39,15 +63,55 @@ def get_expected_module_directory(pkg_root: Path, package_name: str) -> Path | N
 class Loader:
     def __init__(self, local_plugin_path: str, registry_url: str, registry_index: str, registry_user: str | None = None,
                  registry_password: str | None = None):
-        self.plugin_dirs = [Path(local_plugin_path), Path(DEFAULT_PLUGIN_PATH)]
+        # The configured folder first, then the conventional one relative to the working
+        # directory (deployments whose PLUGIN_PATH is a host path still find the mount there).
+        # The same folder reached both ways is scanned once. A package and version found in both
+        # is taken from the configured folder; the other copy is logged and skipped.
+        self.plugin_dirs = []
+        for candidate in (Path(local_plugin_path), Path(DEFAULT_PLUGIN_PATH)):
+            if not any(self._same_dir(candidate, known) for known in self.plugin_dirs):
+                self.plugin_dirs.append(candidate)
         self.devpi_client = DevpiClient(registry_url, registry_index, registry_user, registry_password)
         self.discovered_packages: Dict[str, Dict[str, dict]] = {}
         self._loaded_plugins: Dict[str, BaseEvaluationPlugin] = {}
+        self._digest_cache: Dict[str, tuple] = {}
+
+    @staticmethod
+    def _same_dir(a: Path, b: Path) -> bool:
+        try:
+            return a.resolve() == b.resolve()
+        except OSError:
+            return False
+
+    def _provenance(self, pkg_root: Path) -> dict:
+        """{"digest", "git_commit", "git_dirty"} of a local folder, each None when it can't be read: a
+        plugin is never dropped for its provenance. Recomputed only when a source file's path, size
+        or mtime, or the checkout's HEAD or index, changed."""
+        key = str(pkg_root.resolve())
+        try:
+            signature = (stat_signature(pkg_root), _git_marks(pkg_root))
+        except OSError as exc:
+            logger.warning(f"Local package at {pkg_root}: its files could not be listed ({exc}); no digest")
+            return {"digest": None, "git_commit": None, "git_dirty": None}
+        cached = self._digest_cache.get(key)
+        if cached and cached[0] == signature:
+            return dict(cached[1])
+        try:
+            digest = folder_digest(pkg_root)
+        except OSError as exc:
+            logger.warning(f"Local package at {pkg_root}: a file could not be read ({exc}); no digest")
+            digest = None
+        facts = {"digest": digest, **{f"git_{k}": v for k, v in git_state(pkg_root).items()}}
+        if digest is not None:
+            self._digest_cache[key] = (signature, facts)
+        return dict(facts)
 
     def _discover_local_packages(self):
         for plugin_dir in self.plugin_dirs:
             if not plugin_dir.exists() or not plugin_dir.is_dir():
+                logger.info(f"Local plugin folder {plugin_dir} does not exist; skipped")
                 continue
+            logger.info(f"Scanning local plugin folder {plugin_dir.resolve()}")
             for pkg_root in plugin_dir.iterdir():
                 if not pkg_root.is_dir():
                     continue
@@ -72,25 +136,35 @@ class Loader:
                         logger.warning(f"Skipping local package '{package_name}': does not depend on {AISC_INTERFACE_DEP}")
                         continue
 
-                    # Enforce strict naming matching the registry
+                    # Same naming rule as for a package installed from the index
                     module_path = get_expected_module_directory(pkg_root, package_name)
                     if not module_path:
                         logger.error(
                             f"Convention Violation: Package '{package_name}' does not contain a matching module folder inside '{pkg_root.name}'")
                         continue
 
+                    catalogue_slug = toml_data.get("tool", {}).get("aisc", {}).get("catalogue_slug")
                     meta = {
                         "source": "local",
                         "pkg_root": pkg_root,
                         "module_name": module_path.name,
-                        "import_path": str(module_path.parent.resolve())
+                        "import_path": str(module_path.parent.resolve()),
+                        "declared_version": version,
+                        "catalogue_slug": catalogue_slug or None,
                     }
 
                     if self._is_package_valid(meta):
+                        meta.update(self._provenance(pkg_root))
                         if package_name not in self.discovered_packages:
                             self.discovered_packages[package_name] = {}
 
-                        self.discovered_packages[package_name][version] = meta
+                        listed = self.discovered_packages[package_name]
+                        known = listed.get(local_version(version))
+                        if known is not None:       # the folder scanned first (the configured one) wins
+                            logger.warning(f"Local package '{package_name}' {version} at {pkg_root.resolve()} is "
+                                           f"shadowed by the one at {Path(known['pkg_root']).resolve()}; skipped")
+                        else:
+                            listed[local_version(version)] = meta
                 except Exception as e:
                     logger.warning(f"Failed to read pyproject.toml for {pkg_root.name}: {e}")
 
@@ -111,7 +185,6 @@ class Loader:
             importlib.invalidate_caches()
 
             try:
-                # Import the module to inspect it
                 module = importlib.import_module(module_name)
                 return next(self._find_plugins_classes(module), None) is not None
             except Exception as e:
@@ -124,7 +197,7 @@ class Loader:
         if not self.devpi_client:
             return
         try:
-            registry_packages = self.devpi_client.list_packages()
+            registry_packages = self.devpi_client.list_versions()
             for package_name, versions in registry_packages.items():
                 if package_name not in self.discovered_packages:
                     self.discovered_packages[package_name] = {}
@@ -158,7 +231,8 @@ class Loader:
         return {obj.__name__: obj for obj in self._find_plugins_classes(module)}
 
     def load_package(self, package_name: str, version: str) -> Dict[str, BaseEvaluationPlugin]:
-        """Installs/Imports the package module, verifying convention criteria."""
+        """Import a package (installing it first when it comes from the index) and return an
+        instance of each plugin class in it, keyed by class name."""
         if not self.discovered_packages:
             self.list_packages()
 
@@ -166,19 +240,23 @@ class Loader:
             raise KeyError(f"Package '{package_name}' not found.")
 
         available_versions = self.discovered_packages[package_name]
+        if version not in available_versions and local_version(version) in available_versions:
+            # a local plugin stored under its declared version, from before "+local" listing
+            version = local_version(version)
         if version not in available_versions:
             raise KeyError(f"Version '{version}' of package '{package_name}' not found.")
 
         package_meta = available_versions[version]
         module_name = package_meta["module_name"]
 
-        # Flush sys.modules to enforce a clean re-import
+        # Drop the module and its submodules from sys.modules so the import reads the code afresh
         if module_name in sys.modules:
             modules_to_remove = [m for m in sys.modules if m == module_name or m.startswith(f"{module_name}.")]
             for m in modules_to_remove:
                 del sys.modules[m]
 
-        # Configure environment paths depending on the source target
+        # A local package is imported from its folder; an index package is installed first, without
+        # its dependencies.
         if package_meta["source"] == "local":
             import_path = package_meta["import_path"]
             if import_path not in sys.path:
@@ -190,7 +268,6 @@ class Loader:
         sys.path_importer_cache.clear()
         importlib.invalidate_caches()
 
-        # Import the unified module target
         try:
             module = importlib.import_module(module_name)
         except ImportError as e:
@@ -200,7 +277,6 @@ class Loader:
         if not plugin_classes:
             raise ValueError(f"No valid implementations inheriting from BaseEvaluationPlugin found in '{module_name}'")
 
-        # Instantiate implementation instances and update the engine cache
         instances = {}
         for name, cls in plugin_classes.items():
             instance = cls()

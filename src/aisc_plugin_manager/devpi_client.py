@@ -44,9 +44,9 @@ class DevpiClient:
         if self._initialized:
             return
 
-        # Only authenticate when real (non-empty) credentials are provided. Empty strings mean
-        # "public index, no login" — listing a public devpi index needs no auth, and POSTing
-        # /+login with empty creds returns 401 and breaks registry discovery.
+        # Log in only with real (non-empty) credentials. Empty strings mean a public index:
+        # listing it needs no login, and POST /+login with empty credentials answers 401, which
+        # would break registry discovery.
         if self.user and self.password:
             response = self.client.post(
                 "/+login",
@@ -56,8 +56,10 @@ class DevpiClient:
 
         self._initialized = True
 
-    def list_packages(self) -> dict[str, str]:
-        """Returns a dictionary of {package_name: latest_version}"""
+    def list_versions(self) -> dict[str, list[str]]:
+        """Return {package name: every version in the index}; a package whose versions cannot be read is
+        skipped. The loader needs them all: a project keeps the version it installed after a newer one is
+        uploaded."""
         self._initialize_devpi()
         result = {}
 
@@ -74,11 +76,8 @@ class DevpiClient:
                     pkg_response.raise_for_status()
 
                     pkg_data = DevpiPackageResponse.model_validate(pkg_response.json())
-                    versions = pkg_data.result
-
-                    if versions:
-                        latest_version = max(versions.keys(), key=parse_version)
-                        result[pkg] = str(latest_version)
+                    if pkg_data.result:
+                        result[pkg] = sorted(pkg_data.result, key=parse_version)
 
                 except Exception as e:
                     logger.warning(f"Failed to fetch versions for {pkg}: {e}")
@@ -88,6 +87,10 @@ class DevpiClient:
 
         return result
 
+    def list_packages(self) -> dict[str, str]:
+        """Return {package name: latest version} for the index (the catalogue shows the latest only)."""
+        return {pkg: versions[-1] for pkg, versions in self.list_versions().items()}
+
     def close(self):
-        """Helper to cleanly shut down the HTTP connection pool."""
+        """Close the HTTP connection pool."""
         self.client.close()
