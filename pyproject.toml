@@ -1,6 +1,6 @@
 [project]
 name = "aisc-plugin-manager"
-version = "0.3.0"
+version = "0.3.0+aisc.1"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
