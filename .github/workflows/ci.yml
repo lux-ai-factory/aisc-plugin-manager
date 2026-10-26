@@ -1,0 +1,42 @@
+# The plugin-manager's tests, on the interface wheel under vendor/ (never PyPI's): the lock takes it from there, and
+# a step proves the installed interface is that wheel before the tests run. Needs nothing but uv.
+name: ci
+
+on:
+  push:
+    branches: [feat/unified-modules, main, master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      UV_PYTHON: "3.12"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: the interface is the vendored wheel
+        run: |
+          uv run --locked python -c '
+          import importlib.metadata, json, sys
+          dist = importlib.metadata.distribution("aisc-plugin-interface")
+          problems = []
+          if dist.version != "0.4.0":
+              problems.append(f"version {dist.version}, not 0.4.0")
+          url = json.loads(dist.read_text("direct_url.json") or "{}").get("url") or "an index"
+          if not url.endswith("/vendor/aisc_plugin_interface-0.4.0-py3-none-any.whl"):
+              problems.append(f"installed from {url}, not the wheel under vendor/")
+          try:
+              import aisc_plugin_interface.assesses
+          except ImportError as error:
+              problems.append(f"aisc_plugin_interface.assesses does not import: {error}")
+          if problems:
+              sys.exit("the interface is not the vendored wheel: " + "; ".join(problems))
+          print("interface 0.4.0 from vendor/")
+          '
+      - run: uv run --locked --with pytest python -m pytest -q -p no:cacheprovider
