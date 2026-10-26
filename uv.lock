@@ -4,15 +4,20 @@ requires-python = ">=3.12"
 
 [[package]]
 name = "aisc-plugin-interface"
-version = "0.3.0"
-source = { registry = "https://pypi.org/simple" }
+version = "0.4.0"
+source = { path = "vendor/aisc_plugin_interface-0.4.0-py3-none-any.whl" }
 dependencies = [
     { name = "pydantic" },
     { name = "rich" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/88/88/0d8e08c11e3b3bcfac68c8180b5df9f9cda53c1a666c4c2afec7348f73b8/aisc_plugin_interface-0.3.0.tar.gz", hash = "sha256:fc8d1115bbad7a4202d03c106c4ab084107b02dbb1b31fcf0881159e54aba4ac", size = 18617, upload-time = "2026-09-24T14:05:32.006Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/04/78/c19bb8bd82f0903e22bc616a1fbd3e0fec86a909c36382da586f13e6e88c/aisc_plugin_interface-0.3.0-py3-none-any.whl", hash = "sha256:7d9f6de9ddbc1ed4f978c557e66a37a03a58b167b773aff48609c91759799aab", size = 28275, upload-time = "2026-09-24T14:05:30.847Z" },
+    { filename = "aisc_plugin_interface-0.4.0-py3-none-any.whl", hash = "sha256:a3bd229b124b87a4d9084dc6bd9d97d1a39677666f2af0c1d1ddb129dc5e680c" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "pydantic", specifier = ">=2.13.5" },
+    { name = "rich", specifier = ">=15.0.0" },
 ]
 
 [[package]]
@@ -27,7 +32,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "aisc-plugin-interface", specifier = ">=0.3.0" },
+    { name = "aisc-plugin-interface", path = "vendor/aisc_plugin_interface-0.4.0-py3-none-any.whl" },
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "packaging", specifier = ">=26.3" },
 ]

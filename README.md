@@ -50,8 +50,9 @@ Modules in `src/aisc_plugin_manager/`: `loader.py` (`Loader`), `devpi_client.py`
 ## Install
 
 Requires Python 3.12 or newer, and the `uv` command on `PATH` to install plugins from the index.
-Dependencies: `aisc-plugin-interface>=0.3.0`, `httpx`, `packaging` (and `pydantic`, through the
-interface).
+Dependencies: `aisc-plugin-interface>=0.4.0`, `httpx`, `packaging` (and `pydantic`, through the
+interface). The lock takes the interface from the wheel under `vendor/` (PyPI has no 0.4.0), built by the AISC
+repo's `scripts/vendor-plugin-interface.sh`.
 
 The package is not on PyPI. Install it from git:
 

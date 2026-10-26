@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-10-26: plugin interface 0.4.0
+
+- The pin is `aisc-plugin-interface>=0.4.0` (the version with `assesses`, `helpers` and `connections`). PyPI's latest is 0.3.0, so the lock takes the wheel under `vendor/`, built from the AISC repo's `shared/plugin-interface` by its `scripts/vendor-plugin-interface.sh`. Test: `tests/test_interface_pin.py`.
+
+Check: `uv run --locked --with pytest python -m pytest -q -p no:cacheprovider`.
+
 ## 2026-10-14: review pass (branch pass/libs-2026-10-13)
 
 Areas: `loader.py` (local plugin folders), README "How it works".

@@ -5,7 +5,11 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "aisc-plugin-interface>=0.3.0",
+    "aisc-plugin-interface>=0.4.0",
     "httpx>=0.28.1",
     "packaging>=26.3",
 ]
+
+[tool.uv.sources]
+# our 0.4.0, built from shared/plugin-interface by the root's scripts/vendor-plugin-interface.sh: PyPI's latest, 0.3.0, has no assesses, helpers or connections
+aisc-plugin-interface = { path = "vendor/aisc_plugin_interface-0.4.0-py3-none-any.whl" }
