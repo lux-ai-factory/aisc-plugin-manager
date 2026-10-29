@@ -59,12 +59,12 @@ The package is not on PyPI. Install it from git:
 ```bash
 uv add git+https://github.com/lux-ai-factory/aisc-plugin-manager --tag v0.3.0
 # or the branch the AISC stack uses
-uv add git+https://github.com/lux-ai-factory/aisc-plugin-manager --branch feat/unified-modules
+uv add git+https://github.com/lux-ai-factory/aisc-plugin-manager --branch pilot
 ```
 
 The tag `v0.3.0` (the `master` branch) is what `apps/backend` and `apps/eval` pin in their
 `pyproject.toml`. It does not have the `+local` versions, the digest and git state, or the fix that
-skips the devpi login for empty credentials: those are only on `feat/unified-modules`. That branch's
+skips the devpi login for empty credentials: those are only on `pilot`. That branch's
 `pyproject.toml` still says version 0.3.0.
 
 ### Inside the AISC stack
@@ -111,7 +111,7 @@ tests/                     loader (local discovery, +local versions) and digest 
 
 ## Contributing
 
-`feat/unified-modules` is the branch the AISC stack uses and the only one to work on. See
+`pilot` is the branch the AISC stack uses and the only one to work on. See
 [CONTRIBUTING.md](CONTRIBUTING.md) for the contributor licence terms.
 
 ## License
