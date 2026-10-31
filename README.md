@@ -31,8 +31,7 @@ knows two sources of plugin packages:
   are None when they can't be read: a plugin is never dropped for them.
 - **A devpi package index** (the stack's `devpi` service, where `plugin-publisher` puts each test an admin
   installs from the project's catalogue). `DevpiClient.list_versions` lists every version of each package (the
-  loader offers whichever a project has), `list_packages` the latest of each; it logs in only when a user and
-  password are both non-empty.
+  loader offers whichever a project has); it logs in only when a user and password are both non-empty.
 
 In the AISC stack, a plugin of your own goes in `local_plugins/` of the aisc repository and is installed from a
 private catalogue like a public test (see `local_plugins/README.md` there). For how tests are installed and run,

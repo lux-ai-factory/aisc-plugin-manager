@@ -46,7 +46,6 @@ def plugin_root(tmp_path):
 @pytest.fixture
 def no_registry(monkeypatch):
     from aisc_plugin_manager import devpi_client
-    monkeypatch.setattr(devpi_client.DevpiClient, "list_packages", lambda self: {})
     monkeypatch.setattr(devpi_client.DevpiClient, "list_versions", lambda self: {})
 
 

@@ -86,11 +86,3 @@ class DevpiClient:
             logger.error(f"Failed to fetch package list from devpi: {e}")
 
         return result
-
-    def list_packages(self) -> dict[str, str]:
-        """Return {package name: latest version} for the index (the catalogue shows the latest only)."""
-        return {pkg: versions[-1] for pkg, versions in self.list_versions().items()}
-
-    def close(self):
-        """Close the HTTP connection pool."""
-        self.client.close()

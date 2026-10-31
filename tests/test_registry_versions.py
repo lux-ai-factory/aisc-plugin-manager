@@ -25,11 +25,6 @@ def test_the_client_lists_every_version_of_each_package():
         {"aisc-plugin-langbite": ["0.2.4", "0.2.5", "0.2.6"], "data-monitor": ["0.4.0", "0.4.1"]}
 
 
-def test_the_catalogue_still_gets_the_latest_version_only():
-    client = fake_devpi(DevpiClient("http://devpi.invalid", "root/public"))
-    assert client.list_packages() == {"aisc-plugin-langbite": "0.2.6", "data-monitor": "0.4.1"}
-
-
 def test_the_loader_knows_an_older_version_still_in_the_index(tmp_path):
     loader = Loader(str(tmp_path), "http://devpi.invalid", "root/public")
     fake_devpi(loader.devpi_client)
