@@ -101,9 +101,9 @@ def test_without_tool_aisc_the_catalogue_slug_is_none(plugin_root, no_registry):
 
 def test_a_plus_local_version_loads(plugin_root, monkeypatch):
     make_plugin(plugin_root, "demo", "aisc-plugin-demo", "0.1.1")
-    monkeypatch.setattr(devpi_client.DevpiClient, "list_packages", lambda self: {"aisc-plugin-demo": ["0.1.1"]})
+    monkeypatch.setattr(devpi_client.DevpiClient, "list_versions", lambda self: {"aisc-plugin-demo": ["0.1.1"]})
     ld = loader(plugin_root)
-    ld.list_packages(refresh=True)
+    assert set(ld.list_packages(refresh=True)["aisc-plugin-demo"]) == {"0.1.1", "0.1.1+local"}
     assert "DemoPlugin" in ld.load_package("aisc-plugin-demo", "0.1.1+local")
 
 
