@@ -91,9 +91,10 @@ class Loader:
                     if classified is None:
                         continue
 
-                    plugin_classes, adapter_classes = classified
+                    plugin_classes, adapter_classes, adapter_type_hints = classified
                     meta["plugin_classes"] = plugin_classes
                     meta["adapter_classes"] = adapter_classes
+                    meta["adapter_type_hints"] = adapter_type_hints
                     meta["kinds"] = self._kinds_for(plugin_classes, adapter_classes)
 
                     if plugin_classes:
@@ -108,10 +109,13 @@ class Loader:
                 except Exception as e:
                     logger.warning(f"Failed to read pyproject.toml for {pkg_root.name}: {e}")
 
-    def _classify_module(self, package_meta: dict) -> tuple[list[str], list[str]] | None:
-        """Imports a local package module and returns (plugin_classes, adapter_classes).
+    def _classify_module(
+        self, package_meta: dict
+    ) -> tuple[list[str], list[str], dict[str, dict]] | None:
+        """Import a local package module and classify its exports.
 
-        Returns ``None`` when the module cannot be imported or validated.
+        Returns ``(plugin_classes, adapter_classes, adapter_type_hints)`` or
+        ``None`` when the module cannot be imported or validated.
         """
         module_name = package_meta["module_name"]
         import_path = package_meta["import_path"]
@@ -131,10 +135,31 @@ class Loader:
                 return None
 
             plugin_classes = [cls.__name__ for cls in self._find_plugin_classes(module)]
-            adapter_classes = [cls.__name__ for cls in self._find_adapter_classes(module)]
-            return plugin_classes, adapter_classes
+            adapter_cls = list(self._find_adapter_classes(module))
+            adapter_classes = [cls.__name__ for cls in adapter_cls]
+            adapter_type_hints = {
+                cls.__name__: self._adapter_type_hints(cls) for cls in adapter_cls
+            }
+            return plugin_classes, adapter_classes, adapter_type_hints
         finally:
             sys.path = old_path
+
+    @staticmethod
+    def _adapter_type_hints(adapter_cls: Type[BaseInputAdapter]) -> dict:
+        """Return the optional UI type hints declared by an adapter class."""
+        input_types = getattr(adapter_cls, "input_types", None)
+        if input_types is not None:
+            input_types = [
+                str(type_name).strip()
+                for type_name in input_types
+                if str(type_name).strip()
+            ] or None
+
+        output_type = getattr(adapter_cls, "output_type", None)
+        if output_type is not None:
+            output_type = str(output_type).strip() or None
+
+        return {"input_types": input_types, "output_type": output_type}
 
     def _discover_registry_packages(self):
         if not self.devpi_client:
@@ -158,6 +183,7 @@ class Loader:
                         "module_name": package_name.replace("-", "_"),
                         "plugin_classes": [],
                         "adapter_classes": [],
+                        "adapter_type_hints": {},
                         "kinds": ["plugin", "adapter"],
                     }
                     if version not in self.discovered_packages[package_name]:
