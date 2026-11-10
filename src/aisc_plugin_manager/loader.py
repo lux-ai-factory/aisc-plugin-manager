@@ -6,6 +6,8 @@ import tomllib
 from pathlib import Path
 from typing import Dict, Type, Iterator
 
+from packaging.version import parse as parse_version
+
 from .devpi_client import DevpiClient
 from .uv_client import uv_install
 
@@ -167,15 +169,21 @@ class Loader:
     def _extract_plugin_classes(self, module) -> Dict[str, Type[BaseEvaluationPlugin]]:
         return {obj.__name__: obj for obj in self._find_plugins_classes(module)}
 
-    def load_package(self, package_name: str, version: str) -> Dict[str, BaseEvaluationPlugin]:
-        """Installs/Imports the package module, verifying convention criteria."""
+    def load_package(self, package_name: str, version: str | None = None) -> Dict[str, BaseEvaluationPlugin]:
+        """Installs/Imports the package module, verifying convention criteria.
+
+        An empty/None version resolves to the latest discovered version of the
+        package (catalogue installs store no version until one is pinned).
+        """
         if not self.discovered_packages:
             self.list_packages()
 
-        if package_name not in self.discovered_packages:
+        available_versions = self.discovered_packages.get(package_name, {})
+        if not available_versions:
             raise KeyError(f"Package '{package_name}' not found.")
 
-        available_versions = self.discovered_packages[package_name]
+        if not version:
+            version = str(max(available_versions.keys(), key=parse_version))
         if version not in available_versions:
             raise KeyError(f"Version '{version}' of package '{package_name}' not found.")
 
