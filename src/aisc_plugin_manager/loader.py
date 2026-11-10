@@ -13,6 +13,7 @@ from aisc_plugin_interface import BaseEvaluationPlugin
 
 logger = logging.getLogger(__name__)
 DEFAULT_PLUGIN_PATH = "plugins"
+DEFAULT_BUNDLED_PLUGIN_PATH = "def_plugins"
 AISC_INTERFACE_DEP = "aisc-plugin-interface"
 
 
@@ -39,7 +40,16 @@ def get_expected_module_directory(pkg_root: Path, package_name: str) -> Path | N
 class Loader:
     def __init__(self, local_plugin_path: str, registry_url: str, registry_index: str, registry_user: str | None = None,
                  registry_password: str | None = None):
-        self.plugin_dirs = [Path(local_plugin_path), Path(DEFAULT_PLUGIN_PATH)]
+        # Skip an unset/empty path so we never end up scanning the working
+        # directory as if it were a plugin folder.
+        if local_plugin_path and local_plugin_path.strip():
+            self.plugin_dirs = [Path(local_plugin_path)]
+        else:
+            self.plugin_dirs = []
+        self.plugin_dirs += [
+            Path(d) for d in (DEFAULT_PLUGIN_PATH, DEFAULT_BUNDLED_PLUGIN_PATH)
+            if Path(d).is_dir() and Path(d) not in self.plugin_dirs
+        ]
         self.devpi_client = DevpiClient(registry_url, registry_index, registry_user, registry_password)
         self.discovered_packages: Dict[str, Dict[str, dict]] = {}
         self._loaded_plugins: Dict[str, BaseEvaluationPlugin] = {}
