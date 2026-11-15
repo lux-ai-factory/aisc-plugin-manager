@@ -215,3 +215,15 @@ def test_the_configured_folder_wins_and_the_shadowed_copy_is_logged(tmp_path, mo
         listed = loader(configured).list_packages(refresh=True)
     assert listed["aisc-plugin-demo"]["1.0+local"]["pkg_root"] == configured / "demo"
     assert any(str(tmp_path / "plugins" / "demo") in r.getMessage() for r in caplog.records)
+
+
+def test_a_local_plugins_provenance_follows_an_edit_and_a_registry_version_has_none(plugin_root, monkeypatch):
+    pkg = make_plugin(plugin_root, "demo", "aisc-plugin-demo", "0.1.1")
+    monkeypatch.setattr(devpi_client.DevpiClient, "list_versions", lambda self: {"aisc-plugin-demo": ["0.1.1"]})
+    ld = loader(plugin_root)
+    ld.list_packages(refresh=True)
+    before = ld.local_provenance("aisc-plugin-demo", "0.1.1+local")["digest"]
+    (pkg / "aisc_plugin_demo" / "__init__.py").write_text("# edited\n")
+    assert ld.local_provenance("aisc-plugin-demo", "0.1.1+local")["digest"] not in (None, before)
+    assert ld.local_provenance("aisc-plugin-demo", "0.1.1") is None
+    assert ld.local_provenance("aisc-plugin-unknown", "1.0") is None

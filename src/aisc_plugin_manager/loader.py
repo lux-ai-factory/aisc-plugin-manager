@@ -223,6 +223,17 @@ class Loader:
             raise KeyError(f"Version '{version}' of package '{package_name}' not found.")
         return available_versions[version]
 
+    def local_provenance(self, package_name: str, version: str) -> dict | None:
+        """{"digest", "git_commit", "git_dirty"} of a listed local plugin's folder as it is now (recomputed only
+        when a file or the checkout changed), None for a version that is not a local folder."""
+        try:
+            meta = self.package_meta(package_name, version)
+        except KeyError:
+            return None
+        if meta.get("source") != "local":
+            return None
+        return self._provenance(Path(meta["pkg_root"]))
+
     def load_package(self, package_name: str, version: str):
         """Refused: plugin code is never imported in the calling process (the engine). The worker reads a
         plugin's manifest in its sandbox, and the engine answers from the manifest stored on the plugin."""
