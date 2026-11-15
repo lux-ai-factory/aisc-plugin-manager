@@ -21,9 +21,9 @@ knows two sources of plugin packages:
   and skipped. Each subfolder with a
   `pyproject.toml` is accepted when it has a `name` and a `version`, depends on
   `aisc-plugin-interface`, keeps its code in a folder named after the package (dashes as
-  underscores) under `src/` or at the root, and that module imports and holds at least one
-  non-abstract `BaseEvaluationPlugin` subclass. A local package is listed as `<version>+local`, so it
-  never shadows the same version on the index; `load_package` also finds it by its declared version.
+  underscores) under `src/` or at the root, and that folder holds an `__init__.py`. Nothing of it is imported:
+  its plugin classes are read by the worker, in its sandbox. A local package is listed as `<version>+local`, so it
+  never shadows the same version on the index; `package_meta` also finds it by its declared version.
   Its entry also records a SHA-256 digest of its source files, the git commit and whether the
   checkout is dirty (`digest.py`), and the `[tool.aisc] catalogue_slug` from its `pyproject.toml`, so a
   result can be traced to the exact code. Those are cached until a file or the checkout changes (its
@@ -32,6 +32,8 @@ knows two sources of plugin packages:
 - **A devpi package index** (the stack's `devpi` service, where `plugin-publisher` puts each test an admin
   installs from the project's catalogue). `DevpiClient.list_versions` lists every version of each package (the
   loader offers whichever a project has); it logs in only when a user and password are both non-empty.
+  `DevpiClient.wheel_sha256(package, version)` reads the sha256 of that version's wheel from the index's simple
+  page (None when it lists none).
 
 In the AISC stack, a plugin of your own goes in `local_plugins/` of the aisc repository and is installed from a
 private catalogue like a public test (see `local_plugins/README.md` there). For how tests are installed and run,
@@ -42,19 +44,19 @@ Main calls:
 | Call | What it does |
 |---|---|
 | `list_packages(refresh=False)` | `{package: {version: metadata}}` from both sources |
-| `load_package(package, version)` | imports the package (an index package is first installed with `uv pip install --no-deps` into the running interpreter, with the index as extra index URL) and returns an instance of each plugin class, keyed by class name |
-| `load_plugin(package, plugin_class_name, version)` | one plugin instance, cached |
-| `refresh_package(package, version)` | drops the cached instances and loads again |
+| `package_meta(package, version)` | the listing's entry of one version (source, module name, local path and provenance) |
+| `load_package`, `load_plugin`, `refresh_package` | refused with `CodeNotImported`: plugin code is never imported in the calling process |
 
-`load_package` is how `aisc-backend` reads a test's form. The worker does not run a test in its own
-interpreter: it installs the package with its dependencies in a fresh environment (see `apps/eval`).
+`aisc-backend` never imports a plugin: it answers from the manifest stored on the plugin's row, which the worker
+reads in its sandbox (`aisc_plugin_interface.manifest`, see `apps/eval`). The worker installs each package with
+its dependencies in a fresh environment and runs it as a user of its own.
 
 Modules in `src/aisc_plugin_manager/`: `loader.py` (`Loader`), `devpi_client.py` (`DevpiClient`),
-`uv_client.py` (the `uv pip install` call), `digest.py` (folder digest and git state).
+`digest.py` (folder digest and git state).
 
 ## Install
 
-Requires Python 3.12 or newer, and the `uv` command on `PATH` to install plugins from the index.
+Requires Python 3.12 or newer.
 Dependencies: `aisc-plugin-interface>=0.4.0`, `httpx`, `packaging` (and `pydantic`, through the
 interface). The lock takes the interface from the wheel under `vendor/` (PyPI has no 0.4.0), built by the aisc
 repo's `scripts/vendor-plugin-interface.sh`.

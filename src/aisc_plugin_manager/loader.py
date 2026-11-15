@@ -1,21 +1,20 @@
-import importlib
-import inspect
-import sys
 import logging
 import tomllib
 from pathlib import Path
-from typing import Dict, Type, Iterator
+from typing import Dict
 
 from .devpi_client import DevpiClient
 from .digest import _git_dir, folder_digest, git_state, stat_signature
-from .uv_client import uv_install
-
-from aisc_plugin_interface import BaseEvaluationPlugin
 
 logger = logging.getLogger(__name__)
 DEFAULT_PLUGIN_PATH = "plugins"
 AISC_INTERFACE_DEP = "aisc-plugin-interface"
 LOCAL_LABEL = "local"
+CODE_NOT_IMPORTED = "plugin code is not imported in this process: read the plugin's stored manifest"
+
+
+class CodeNotImported(RuntimeError):
+    """A call that would import plugin code in the calling process."""
 
 
 def _git_marks(pkg_root: Path) -> tuple:
@@ -73,7 +72,6 @@ class Loader:
                 self.plugin_dirs.append(candidate)
         self.devpi_client = DevpiClient(registry_url, registry_index, registry_user, registry_password)
         self.discovered_packages: Dict[str, Dict[str, dict]] = {}
-        self._loaded_plugins: Dict[str, BaseEvaluationPlugin] = {}
         self._digest_cache: Dict[str, tuple] = {}
 
     @staticmethod
@@ -210,83 +208,30 @@ class Loader:
             self._discover_registry_packages()
         return self.discovered_packages
 
-    def _find_plugins_classes(self, module) -> Iterator[Type[BaseEvaluationPlugin]]:
-        for _, obj in inspect.getmembers(module, inspect.isclass):
-            if issubclass(obj, BaseEvaluationPlugin) and not getattr(obj.evaluate, "__isabstractmethod__", False):
-                yield obj
-
-    def _extract_plugin_classes(self, module) -> Dict[str, Type[BaseEvaluationPlugin]]:
-        return {obj.__name__: obj for obj in self._find_plugins_classes(module)}
-
-    def load_package(self, package_name: str, version: str) -> Dict[str, BaseEvaluationPlugin]:
-        """Import a package (installing it first when it comes from the index) and return an
-        instance of each plugin class in it, keyed by class name."""
+    def package_meta(self, package_name: str, version: str) -> dict:
+        """What the listing knows of one version of a package (source, module name, and for a local folder its
+        path and provenance). A local plugin stored under its declared version, from before "+local" listing,
+        is found too. KeyError when it is not listed."""
         if not self.discovered_packages:
             self.list_packages()
-
         if package_name not in self.discovered_packages:
             raise KeyError(f"Package '{package_name}' not found.")
-
         available_versions = self.discovered_packages[package_name]
         if version not in available_versions and local_version(version) in available_versions:
-            # a local plugin stored under its declared version, from before "+local" listing
             version = local_version(version)
         if version not in available_versions:
             raise KeyError(f"Version '{version}' of package '{package_name}' not found.")
+        return available_versions[version]
 
-        package_meta = available_versions[version]
-        module_name = package_meta["module_name"]
+    def load_package(self, package_name: str, version: str):
+        """Refused: plugin code is never imported in the calling process (the engine). The worker reads a
+        plugin's manifest in its sandbox, and the engine answers from the manifest stored on the plugin."""
+        raise CodeNotImported(CODE_NOT_IMPORTED)
 
-        # Drop the module and its submodules from sys.modules so the import reads the code afresh
-        if module_name in sys.modules:
-            modules_to_remove = [m for m in sys.modules if m == module_name or m.startswith(f"{module_name}.")]
-            for m in modules_to_remove:
-                del sys.modules[m]
+    def refresh_package(self, package_name: str, version: str):
+        """Refused, as load_package."""
+        raise CodeNotImported(CODE_NOT_IMPORTED)
 
-        # A local package is imported from its folder; an index package is installed first, without
-        # its dependencies.
-        if package_meta["source"] == "local":
-            import_path = package_meta["import_path"]
-            if import_path not in sys.path:
-                sys.path.insert(0, import_path)
-        elif package_meta["source"] == "registry":
-            target = f'{package_name}=={version}'
-            uv_install(target, extra_index_url=self.devpi_client.simple_index_url, no_deps=True)
-
-        sys.path_importer_cache.clear()
-        importlib.invalidate_caches()
-
-        try:
-            module = importlib.import_module(module_name)
-        except ImportError as e:
-            raise ImportError(f"Failed to import convention module '{module_name}' for package '{package_name}': {e}")
-
-        plugin_classes = self._extract_plugin_classes(module)
-        if not plugin_classes:
-            raise ValueError(f"No valid implementations inheriting from BaseEvaluationPlugin found in '{module_name}'")
-
-        instances = {}
-        for name, cls in plugin_classes.items():
-            instance = cls()
-            instances[name] = instance
-            cache_key = f"{package_name}::{version}::{name}"
-            self._loaded_plugins[cache_key] = instance
-
-        return instances
-
-    def refresh_package(self, package_name: str, version: str) -> Dict[str, BaseEvaluationPlugin]:
-        cache_keys = [k for k in self._loaded_plugins if k.startswith(f"{package_name}::{version}::")]
-        for k in cache_keys:
-            del self._loaded_plugins[k]
-        return self.load_package(package_name, version)
-
-    def load_plugin(self, package_name: str, plugin_name: str, version: str) -> BaseEvaluationPlugin:
-        cache_key = f"{package_name}::{version}::{plugin_name}"
-        if cache_key in self._loaded_plugins:
-            return self._loaded_plugins[cache_key]
-
-        plugins = self.load_package(package_name, version)
-        if plugin_name not in plugins:
-            raise KeyError(f"Plugin '{plugin_name}' not found in module package '{package_name}'")
-
-        return plugins[plugin_name]
+    def load_plugin(self, package_name: str, plugin_name: str, version: str):
+        """Refused, as load_package."""
+        raise CodeNotImported(CODE_NOT_IMPORTED)
