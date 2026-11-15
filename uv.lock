@@ -4,14 +4,14 @@ requires-python = ">=3.12"
 
 [[package]]
 name = "aisc-plugin-interface"
-version = "0.4.0"
-source = { path = "vendor/aisc_plugin_interface-0.4.0-py3-none-any.whl" }
+version = "0.5.0"
+source = { path = "vendor/aisc_plugin_interface-0.5.0-py3-none-any.whl" }
 dependencies = [
     { name = "pydantic" },
     { name = "rich" },
 ]
 wheels = [
-    { filename = "aisc_plugin_interface-0.4.0-py3-none-any.whl", hash = "sha256:e626dcad531c70679727177884fa00d3729439cd04b85fb6d6445266c866db6f" },
+    { filename = "aisc_plugin_interface-0.5.0-py3-none-any.whl", hash = "sha256:704da20a23ab14efbba6d59435c849b013a2201c8de8fb9c536fa82063416b0d" },
 ]
 
 [package.metadata]
@@ -32,7 +32,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "aisc-plugin-interface", path = "vendor/aisc_plugin_interface-0.4.0-py3-none-any.whl" },
+    { name = "aisc-plugin-interface", path = "vendor/aisc_plugin_interface-0.5.0-py3-none-any.whl" },
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "packaging", specifier = ">=26.3" },
 ]

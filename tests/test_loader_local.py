@@ -20,7 +20,7 @@ def test_a_valid_local_plugin_is_discovered(plugin_root, no_registry):
     assert "aisc-plugin-demo" in packages
 
 
-@pytest.mark.parametrize("kind", ["no_interface_dependency", "wrong_module_folder", "no_plugin_class"])
+@pytest.mark.parametrize("kind", ["no_interface_dependency", "wrong_module_folder", "no_init_file"])
 def test_invalid_local_folders_are_skipped(plugin_root, no_registry, kind):
     if kind == "no_interface_dependency":
         make_plugin(plugin_root, "demo", "aisc-plugin-demo", "0.1.0", depends=False)
@@ -28,15 +28,17 @@ def test_invalid_local_folders_are_skipped(plugin_root, no_registry, kind):
         pkg = make_plugin(plugin_root, "demo", "aisc-plugin-demo", "0.1.0")
         (pkg / "aisc_plugin_demo").rename(pkg / "something_else")
     else:
-        make_plugin(plugin_root, "demo", "aisc-plugin-demo", "0.1.0", module_code="X = 1\n")
+        pkg = make_plugin(plugin_root, "demo", "aisc-plugin-demo", "0.1.0")
+        (pkg / "aisc_plugin_demo" / "__init__.py").unlink()
     assert loader(plugin_root).list_packages(refresh=True) == {}
 
 
-def test_a_local_plugin_loads_its_classes(plugin_root, no_registry):
+def test_a_listed_local_plugin_says_where_its_module_is(plugin_root, no_registry):
     make_plugin(plugin_root, "demo", "aisc-plugin-demo", "0.1.0", cls="DemoPlugin")
     ld = loader(plugin_root)
     version = next(iter(ld.list_packages(refresh=True)["aisc-plugin-demo"]))
-    assert set(ld.load_package("aisc-plugin-demo", version)) == {"DemoPlugin"}
+    meta = ld.package_meta("aisc-plugin-demo", version)
+    assert (meta["source"], meta["module_name"]) == ("local", "aisc_plugin_demo")
 
 
 # scanned folders
@@ -99,12 +101,13 @@ def test_without_tool_aisc_the_catalogue_slug_is_none(plugin_root, no_registry):
     assert meta["catalogue_slug"] is None
 
 
-def test_a_plus_local_version_loads(plugin_root, monkeypatch):
+def test_a_plus_local_version_is_found_next_to_the_registry_one(plugin_root, monkeypatch):
     make_plugin(plugin_root, "demo", "aisc-plugin-demo", "0.1.1")
     monkeypatch.setattr(devpi_client.DevpiClient, "list_versions", lambda self: {"aisc-plugin-demo": ["0.1.1"]})
     ld = loader(plugin_root)
     assert set(ld.list_packages(refresh=True)["aisc-plugin-demo"]) == {"0.1.1", "0.1.1+local"}
-    assert "DemoPlugin" in ld.load_package("aisc-plugin-demo", "0.1.1+local")
+    assert ld.package_meta("aisc-plugin-demo", "0.1.1+local")["source"] == "local"
+    assert ld.package_meta("aisc-plugin-demo", "0.1.1")["source"] == "registry"
 
 
 # ── a local plugin stays listed, and its provenance follows git ─────────────
@@ -152,13 +155,13 @@ def test_git_status_is_not_run_again_while_nothing_changed(plugin_root, no_regis
     assert len(calls) == 1
 
 
-def test_a_local_plugin_stored_under_its_declared_version_still_loads(plugin_root, no_registry):
+def test_a_local_plugin_stored_under_its_declared_version_is_still_found(plugin_root, no_registry):
     """Local packages became '<version>+local'; a plugin the engine stored as '0.1.0' before that was
     'not found' on every page."""
     make_plugin(plugin_root, "demo", "aisc-plugin-demo", "0.1.0", cls="DemoPlugin")
     ld = loader(plugin_root)
     ld.list_packages(refresh=True)
-    assert set(ld.load_package("aisc-plugin-demo", "0.1.0")) == {"DemoPlugin"}
+    assert ld.package_meta("aisc-plugin-demo", "0.1.0")["declared_version"] == "0.1.0"
 
 
 # a plugin folder that is a git worktree (".git" is a file)
@@ -212,3 +215,15 @@ def test_the_configured_folder_wins_and_the_shadowed_copy_is_logged(tmp_path, mo
         listed = loader(configured).list_packages(refresh=True)
     assert listed["aisc-plugin-demo"]["1.0+local"]["pkg_root"] == configured / "demo"
     assert any(str(tmp_path / "plugins" / "demo") in r.getMessage() for r in caplog.records)
+
+
+def test_a_local_plugins_provenance_follows_an_edit_and_a_registry_version_has_none(plugin_root, monkeypatch):
+    pkg = make_plugin(plugin_root, "demo", "aisc-plugin-demo", "0.1.1")
+    monkeypatch.setattr(devpi_client.DevpiClient, "list_versions", lambda self: {"aisc-plugin-demo": ["0.1.1"]})
+    ld = loader(plugin_root)
+    ld.list_packages(refresh=True)
+    before = ld.local_provenance("aisc-plugin-demo", "0.1.1+local")["digest"]
+    (pkg / "aisc_plugin_demo" / "__init__.py").write_text("# edited\n")
+    assert ld.local_provenance("aisc-plugin-demo", "0.1.1+local")["digest"] not in (None, before)
+    assert ld.local_provenance("aisc-plugin-demo", "0.1.1") is None
+    assert ld.local_provenance("aisc-plugin-unknown", "1.0") is None

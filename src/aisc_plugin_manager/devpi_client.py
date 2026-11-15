@@ -1,5 +1,13 @@
 import logging
+import re
+
 import httpx
+from packaging.utils import (
+    InvalidWheelFilename,
+    canonicalize_name,
+    parse_wheel_filename,
+)
+from packaging.version import InvalidVersion, Version
 from packaging.version import parse as parse_version
 from pydantic import BaseModel, Field
 
@@ -16,6 +24,10 @@ class DevpiIndexResponse(BaseModel):
 
 class DevpiPackageResponse(BaseModel):
     result: dict[str, dict] = Field(default_factory=dict)
+
+
+#: a link of a simple page: its file name and the sha256 the index gives in its fragment
+_SIMPLE_LINK = re.compile(r'href="[^"#]*/([^/"#]+)#sha256=([0-9a-fA-F]{64})"')
 
 
 class DevpiClient:
@@ -86,3 +98,25 @@ class DevpiClient:
             logger.error(f"Failed to fetch package list from devpi: {e}")
 
         return result
+    def wheel_sha256(self, package: str, version: str) -> str | None:
+        """The sha256 (64 lowercase hex) of the wheel the index holds for that version of the package, read
+        from its simple page; None when the index lists no wheel of that version or cannot be read."""
+        self._initialize_devpi()
+        try:
+            wanted = Version(version)
+            response = self.client.get(f"{self.index}/+simple/{canonicalize_name(package)}/",
+                                       headers={"Accept": "text/html"})
+            response.raise_for_status()
+        except (InvalidVersion, httpx.HTTPError) as exc:
+            logger.warning(f"The index could not say which wheel of {package} {version} it holds: {exc}")
+            return None
+        for filename, digest in _SIMPLE_LINK.findall(response.text):
+            if not filename.endswith(".whl"):
+                continue
+            try:
+                name, found, _build, _tags = parse_wheel_filename(filename)
+            except InvalidWheelFilename:
+                continue
+            if name == canonicalize_name(package) and found == wanted:
+                return digest.lower()
+        return None

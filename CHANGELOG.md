@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-11-15: plugin interface 0.5.0
+
+- The pin is `aisc-plugin-interface>=0.5.0`, the interface's first version on the immutable package index. The
+  lock takes the wheel under `vendor/`. Test: `tests/test_interface_pin.py`.
+
 ## 2026-10-26: plugin interface 0.4.0
 
 - The pin is `aisc-plugin-interface>=0.4.0` (the version with `assesses`, `helpers` and `connections`). PyPI's latest is 0.3.0, so the lock takes the wheel under `vendor/`, built from the AISC repo's `shared/plugin-interface` by its `scripts/vendor-plugin-interface.sh`. Test: `tests/test_interface_pin.py`.
