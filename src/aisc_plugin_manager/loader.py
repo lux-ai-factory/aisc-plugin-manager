@@ -169,29 +169,17 @@ class Loader:
                     logger.warning(f"Failed to read pyproject.toml for {pkg_root.name}: {e}")
 
     def _is_package_valid(self, package_meta: dict) -> bool:
-        """Checks if a local package contains at least one BaseEvaluationPlugin implementation."""
+        """Whether a local folder is a plugin package, from its files alone: its module folder holds an
+        __init__.py (the dependency on the plugin interface is checked before). Nothing of it is imported:
+        its plugin classes are read in the worker's sandbox, never in the calling process."""
         if package_meta["source"] != "local":
             return True
-
-        module_name = package_meta["module_name"]
-        import_path = package_meta["import_path"]
-
-        old_path = sys.path[:]
-        try:
-            if import_path not in sys.path:
-                sys.path.insert(0, import_path)
-
-            sys.path_importer_cache.clear()
-            importlib.invalidate_caches()
-
-            try:
-                module = importlib.import_module(module_name)
-                return next(self._find_plugins_classes(module), None) is not None
-            except Exception as e:
-                logger.warning(f"Failed to validate local package '{module_name}': {e}")
-                return False
-        finally:
-            sys.path = old_path
+        init = Path(package_meta["import_path"]) / package_meta["module_name"] / "__init__.py"
+        if not init.is_file():
+            logger.warning(f"Skipping local package '{package_meta['module_name']}': its module folder has no "
+                           f"__init__.py")
+            return False
+        return True
 
     def _discover_registry_packages(self):
         if not self.devpi_client:

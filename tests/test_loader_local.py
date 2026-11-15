@@ -20,7 +20,7 @@ def test_a_valid_local_plugin_is_discovered(plugin_root, no_registry):
     assert "aisc-plugin-demo" in packages
 
 
-@pytest.mark.parametrize("kind", ["no_interface_dependency", "wrong_module_folder", "no_plugin_class"])
+@pytest.mark.parametrize("kind", ["no_interface_dependency", "wrong_module_folder", "no_init_file"])
 def test_invalid_local_folders_are_skipped(plugin_root, no_registry, kind):
     if kind == "no_interface_dependency":
         make_plugin(plugin_root, "demo", "aisc-plugin-demo", "0.1.0", depends=False)
@@ -28,7 +28,8 @@ def test_invalid_local_folders_are_skipped(plugin_root, no_registry, kind):
         pkg = make_plugin(plugin_root, "demo", "aisc-plugin-demo", "0.1.0")
         (pkg / "aisc_plugin_demo").rename(pkg / "something_else")
     else:
-        make_plugin(plugin_root, "demo", "aisc-plugin-demo", "0.1.0", module_code="X = 1\n")
+        pkg = make_plugin(plugin_root, "demo", "aisc-plugin-demo", "0.1.0")
+        (pkg / "aisc_plugin_demo" / "__init__.py").unlink()
     assert loader(plugin_root).list_packages(refresh=True) == {}
 
 
