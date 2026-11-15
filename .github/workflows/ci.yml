@@ -26,10 +26,10 @@ jobs:
           import importlib.metadata, json, sys
           dist = importlib.metadata.distribution("aisc-plugin-interface")
           problems = []
-          if dist.version != "0.4.0":
-              problems.append(f"version {dist.version}, not 0.4.0")
+          if dist.version != "0.5.0":
+              problems.append(f"version {dist.version}, not 0.5.0")
           url = json.loads(dist.read_text("direct_url.json") or "{}").get("url") or "an index"
-          if not url.endswith("/vendor/aisc_plugin_interface-0.4.0-py3-none-any.whl"):
+          if not url.endswith("/vendor/aisc_plugin_interface-0.5.0-py3-none-any.whl"):
               problems.append(f"installed from {url}, not the wheel under vendor/")
           try:
               import aisc_plugin_interface.assesses
@@ -37,6 +37,6 @@ jobs:
               problems.append(f"aisc_plugin_interface.assesses does not import: {error}")
           if problems:
               sys.exit("the interface is not the vendored wheel: " + "; ".join(problems))
-          print("interface 0.4.0 from vendor/")
+          print("interface 0.5.0 from vendor/")
           '
       - run: uv run --locked --with pytest python -m pytest -q -p no:cacheprovider

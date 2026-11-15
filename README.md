@@ -57,8 +57,8 @@ Modules in `src/aisc_plugin_manager/`: `loader.py` (`Loader`), `devpi_client.py`
 ## Install
 
 Requires Python 3.12 or newer.
-Dependencies: `aisc-plugin-interface>=0.4.0`, `httpx`, `packaging` (and `pydantic`, through the
-interface). The lock takes the interface from the wheel under `vendor/` (PyPI has no 0.4.0), built by the aisc
+Dependencies: `aisc-plugin-interface>=0.5.0`, `httpx`, `packaging` (and `pydantic`, through the
+interface). The lock takes the interface from the wheel under `vendor/` (PyPI has no 0.5.0), built by the aisc
 repo's `scripts/vendor-plugin-interface.sh`.
 
 The package is not on PyPI. Install it from git:
@@ -71,7 +71,7 @@ uv add git+https://github.com/lux-ai-factory/aisc-plugin-manager --tag v0.3.0
 
 This branch's `pyproject.toml` says version `0.3.0+aisc.1`. The tag `v0.3.0` (the `master` branch) does not
 have the `+local` versions, the digest and git state, the fix that skips the devpi login for empty credentials,
-or the 0.4.0 interface. `apps/backend` and `apps/eval` do not install from git: their locks take a
+or the 0.5.0 interface. `apps/backend` and `apps/eval` do not install from git: their locks take a
 `aisc_plugin_manager-0.3.0+aisc.1` wheel under their `vendor/`, built from this checkout by the aisc repo's
 `scripts/vendor-plugin-interface.sh`.
 
@@ -108,7 +108,7 @@ run:
 uv run --with pytest python -m pytest -q
 ```
 
-The tests resolve `aisc-plugin-interface` 0.4.0 from the wheel under `vendor/` through `uv.lock`;
+The tests resolve `aisc-plugin-interface` 0.5.0 from the wheel under `vendor/` through `uv.lock`;
 `tests/test_interface_pin.py` checks that the lock never takes it from PyPI.
 
 ## Layout
