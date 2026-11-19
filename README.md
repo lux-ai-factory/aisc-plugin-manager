@@ -69,10 +69,10 @@ uv add git+https://github.com/lux-ai-factory/aisc-plugin-manager --branch pilot
 uv add git+https://github.com/lux-ai-factory/aisc-plugin-manager --tag v0.3.0
 ```
 
-This branch's `pyproject.toml` says version `0.3.0+aisc.1`. The tag `v0.3.0` (the `master` branch) does not
+This branch's `pyproject.toml` says version `0.3.0+aisc.2`. The tag `v0.3.0` (the `master` branch) does not
 have the `+local` versions, the digest and git state, the fix that skips the devpi login for empty credentials,
 or the 0.5.0 interface. `apps/backend` and `apps/eval` do not install from git: their locks take a
-`aisc_plugin_manager-0.3.0+aisc.1` wheel under their `vendor/`, built from this checkout by the aisc repo's
+`aisc_plugin_manager-0.3.0+aisc.2` wheel under their `vendor/`, built from this checkout by the aisc repo's
 `scripts/vendor-plugin-interface.sh`.
 
 ### Inside the AISC stack

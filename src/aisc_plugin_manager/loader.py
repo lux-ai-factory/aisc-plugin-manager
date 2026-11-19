@@ -35,6 +35,16 @@ def _git_marks(pkg_root: Path) -> tuple:
     return tuple(path.stat().st_mtime_ns if path.is_file() else None for path in paths)
 
 
+DIMENSION_IDS = tuple(f"REQ{n}" for n in range(1, 12))
+
+
+def _declared_dimensions(value) -> list[str]:
+    """The trustworthiness dimensions (REQ1..REQ11) a package declares in [tool.aisc]; anything else is ignored."""
+    if not isinstance(value, list):
+        return []
+    return [d for d in DIMENSION_IDS if d in value]
+
+
 def local_version(version: str) -> str:
     """The version a local package is listed under: PEP 440 local label "+local" (".local" when
     the version already has a local label), so it never shadows a registry version."""
@@ -141,7 +151,8 @@ class Loader:
                             f"Convention Violation: Package '{package_name}' does not contain a matching module folder inside '{pkg_root.name}'")
                         continue
 
-                    catalogue_slug = toml_data.get("tool", {}).get("aisc", {}).get("catalogue_slug")
+                    tool_aisc = toml_data.get("tool", {}).get("aisc", {})
+                    catalogue_slug = tool_aisc.get("catalogue_slug")
                     meta = {
                         "source": "local",
                         "pkg_root": pkg_root,
@@ -149,6 +160,7 @@ class Loader:
                         "import_path": str(module_path.parent.resolve()),
                         "declared_version": version,
                         "catalogue_slug": catalogue_slug or None,
+                        "dimensions": _declared_dimensions(tool_aisc.get("dimensions")),
                     }
 
                     if self._is_package_valid(meta):
