@@ -242,7 +242,9 @@ class Loader:
         presets: list[dict] = []
         if source == "local":
             for cls in meta.get("adapter_classes", []):
-                manifest = self._adapter_manifest(package_name, version, source, cls)
+                manifest = self._adapter_manifest(
+                    package_name, version, source, cls, meta.get("module_name", "")
+                )
                 if manifest is not None:
                     adapters.append(manifest)
             for preset_obj in meta.get("preset_classes", []):
@@ -254,12 +256,22 @@ class Loader:
             version = importlib.metadata.version(BUILTIN_PACKAGE)
         except importlib.metadata.PackageNotFoundError:
             version = "0.0.0"
-        adapters = [m for cls in BUILTIN_ADAPTERS if (m := self._adapter_manifest(BUILTIN_PACKAGE, version, "builtin", cls))]
+        adapters = [
+            m
+            for cls in BUILTIN_ADAPTERS
+            if (
+                m := self._adapter_manifest(
+                    BUILTIN_PACKAGE, version, "builtin", cls, "aisc_plugin_interface.adapters"
+                )
+            )
+        ]
         presets = [self._preset_manifest(p) for p in PRESETS.values()]
         return {"source": "builtin", "version": version, "adapters": adapters, "presets": presets}
 
     @staticmethod
-    def _adapter_manifest(package_name: str, version: str, source: str, cls: type) -> dict | None:
+    def _adapter_manifest(
+        package_name: str, version: str, source: str, cls: type, module: str = ""
+    ) -> dict | None:
         kind = "data" if issubclass(cls, DataAdapter) else "endpoint"
         try:
             config_schema = cls.config_schema()
@@ -269,6 +281,7 @@ class Loader:
         manifest = {
             "id": getattr(cls, "id", cls.__name__),
             "class": cls.__name__,
+            "module": module,
             "label": getattr(cls, "label", ""),
             "kind": kind,
             "version": getattr(cls, "version", "1"),
